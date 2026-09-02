@@ -14,3 +14,17 @@ mtime_ms = 1788352932787
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:9b1b21c6-c38b-4e10-8d89-5f70cb6a6cc5/35978b34-713f-44e3-87f1-72793a20df8d/c9616402-2719-48cc-8e8b-015080318ea4"
 storage_version_token = "1788352936548664"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "h04kJf3wQ89zGfq-Q0KZ0"
+uri = "file://attached_assets/NemesysV2-kubernetes-fixed.zip"
+type = "unspecified"
+title = "NemesysV2 corrected Kubernetes deployment"
+description = "Corrected Kustomize bundle with API and web Services, Ingress routing, matching port 8080 configuration, namespace resource, PostgreSQL workload, and test overlay. Replace environment placeholders before applying."
+logical_id = "94ad7b2d-91ea-42cf-ae50-6e068a964065"
+content_hash = "sha256:e6ff58d54d8cfd56ff5d2ffbf39d3f5c51b3a807e4085cf16e5358b0f2c15fb4"
+size = 9464
+mtime_ms = 1788372764256
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:9b1b21c6-c38b-4e10-8d89-5f70cb6a6cc5/94ad7b2d-91ea-42cf-ae50-6e068a964065/4318a135-1547-4e72-88c1-99554d6f5d43"
+storage_version_token = "1788372774639520"
+content_type = "application/octet-stream"
