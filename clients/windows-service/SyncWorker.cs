@@ -195,6 +195,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 state.Cancellation?.Cancel();
                 state.CooldownUntil = DateTimeOffset.MinValue;
                 state.Signature = signature;
+                state.LastObservedRunning = null;
                 return;
             }
 
@@ -203,8 +204,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 state.Cancellation?.Cancel();
                 state.Signature = signature;
                 state.CooldownUntil = DateTimeOffset.MinValue;
+                state.LastObservedRunning = null;
             }
-            if (state.Task is { IsCompleted: false } || state.CooldownUntil > DateTimeOffset.UtcNow)
+            if (state.Task is { IsCompleted: false })
                 return;
 
             var processState = GetManagedProcessState(policy);
@@ -215,6 +217,23 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                     policy.Name);
                 state.CooldownUntil = DateTimeOffset.UtcNow.AddMinutes(1);
                 return;
+            }
+            var processRestarted = processState == ManagedProcessState.Running &&
+                state.LastObservedRunning == false;
+            state.LastObservedRunning = processState == ManagedProcessState.Running;
+            if (state.CooldownUntil > DateTimeOffset.UtcNow)
+            {
+                if (processRestarted)
+                {
+                    state.CooldownUntil = DateTimeOffset.MinValue;
+                    logger.LogInformation(
+                        "Managed process for {ApplicationName} restarted; clearing enforcement cooldown",
+                        policy.Name);
+                }
+                else
+                {
+                    return;
+                }
             }
 
             state.Cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -258,8 +277,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             {
                 logger.LogInformation("No managed process is running for {ApplicationName}; running silent installation without a warning", policy.Name);
                 if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
-                await RunSilentInstallCommandsAsync(policy, cancellationToken);
-                SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+                var installationAttempted = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                SetCooldownOrClear(state, signature, installationAttempted);
                 return;
             }
 
@@ -307,8 +326,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                     "Managed process for {ApplicationName} exited before closure; continuing without a kill",
                     policy.Name);
                 if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
-                await RunSilentInstallCommandsAsync(policy, cancellationToken);
-                SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+                var installationAttempted = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                SetCooldownOrClear(state, signature, installationAttempted);
                 return;
             }
 
@@ -318,8 +337,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 SetCooldown(state, signature, TimeSpan.FromMinutes(1));
                 return;
             }
-            await RunSilentInstallCommandsAsync(policy, cancellationToken);
-            SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+            RecordObservedProcessState(state, signature, ManagedProcessState.NotRunning);
+            var installAttemptedAfterClosure = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+            SetCooldownOrClear(state, signature, installAttemptedAfterClosure);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -352,6 +372,36 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         {
             if (string.Equals(state.Signature, signature, StringComparison.Ordinal))
                 state.CooldownUntil = DateTimeOffset.UtcNow.Add(duration);
+        }
+    }
+
+    private void SetCooldownOrClear(EnforcementState state, string signature, bool installationAttempted)
+    {
+        if (installationAttempted)
+            SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+        else
+            ClearCooldown(state, signature);
+    }
+
+    private void ClearCooldown(EnforcementState state, string signature)
+    {
+        lock (enforcementLock)
+        {
+            if (string.Equals(state.Signature, signature, StringComparison.Ordinal))
+                state.CooldownUntil = DateTimeOffset.MinValue;
+        }
+    }
+
+    private void RecordObservedProcessState(
+        EnforcementState state,
+        string signature,
+        ManagedProcessState processState)
+    {
+        if (processState == ManagedProcessState.Unknown) return;
+        lock (enforcementLock)
+        {
+            if (string.Equals(state.Signature, signature, StringComparison.Ordinal))
+                state.LastObservedRunning = processState == ManagedProcessState.Running;
         }
     }
 
@@ -547,8 +597,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             .ToList();
     }
 
-    private async Task RunSilentInstallCommandsAsync(SoftwarePolicy policy, CancellationToken cancellationToken)
+    private async Task<bool> RunSilentInstallCommandsAsync(
+        SoftwarePolicy policy,
+        CancellationToken cancellationToken)
     {
+        var installationAttempted = false;
         foreach (var check in policy.ExeChecks)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -556,6 +609,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 ? FileVersionInfo.GetVersionInfo(check.Executable).FileVersion ?? ""
                 : "";
             if (observed == check.TargetVersion || string.IsNullOrWhiteSpace(check.InstallCommand)) continue;
+            installationAttempted = true;
             try
             {
                 using var process = Process.Start(new ProcessStartInfo
@@ -581,6 +635,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 logger.LogError(exception, "Unable to start silent installation for {Executable}", check.Executable);
             }
         }
+        return installationAttempted;
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
@@ -833,6 +888,7 @@ internal sealed class EnforcementState
     public DateTimeOffset CooldownUntil { get; set; }
     public string? Signature { get; set; }
     public bool Compliant { get; set; }
+    public bool? LastObservedRunning { get; set; }
 }
 
 internal static class PipeJsonProtocol
@@ -1008,8 +1064,22 @@ internal sealed class SessionCompanion
             {
                 Width = 600, Height = 270, Text = "NemesysV2 update notice",
                 StartPosition = FormStartPosition.CenterScreen, TopMost = true,
+                ShowInTaskbar = true,
                 FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false,
                 MinimizeBox = false, ControlBox = false, BackColor = Color.White,
+            };
+            form.Shown += (_, _) =>
+            {
+                form.WindowState = FormWindowState.Normal;
+                form.TopMost = true;
+                form.BringToFront();
+                form.Activate();
+                SetForegroundWindow(form.Handle);
+                SetWindowPos(
+                    form.Handle,
+                    HwndTopmost,
+                    0, 0, 0, 0,
+                    SetWindowPosNoMove | SetWindowPosNoSize | SetWindowPosShowWindow);
             };
             var title = new Label
         {
@@ -1071,6 +1141,24 @@ internal sealed class SessionCompanion
             // shutdown must not turn the interactive helper into a crashed process.
         }
     }
+
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SetWindowPosNoSize = 0x0001;
+    private const uint SetWindowPosNoMove = 0x0002;
+    private const uint SetWindowPosShowWindow = 0x0040;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr windowHandle,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
 }
 
 internal sealed record WarningMessage(string ApplicationName, int Seconds, bool AllowPostpone);

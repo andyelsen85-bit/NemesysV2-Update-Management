@@ -66,12 +66,15 @@ The service uses process enumeration and `Kill(entireProcessTree: true)` under
 valid warning outcome. Enforcement is scheduled independently per policy, so a
 warning countdown, close operation, or installer never delays policy scanning.
 Only one enforcement/install task can be active for a policy; started installer
-commands are tracked through exit and their exit code is logged. To avoid
-repeated prompts or launch attempts, Postpone and completed install attempts use
-a five-minute cooldown, while unavailable companions, unknown process state, and
-close failures use one minute. Cooldowns are cleared when the policy becomes
-compliant or its configuration changes. If process enumeration is unknown, the
-service fails safe and does not warn, close, or install.
+commands are tracked through exit and their exit code is logged. Process
+enumeration continues every scan even during an enforcement cooldown, so a
+process restarted after closure is detected on the next 30-second scan.
+To avoid repeated prompts or launch attempts, Postpone and completed install
+attempts use a five-minute enforcement cooldown, while unavailable companions,
+unknown process state, and close failures use one minute. Cooldowns are cleared
+when the policy becomes compliant or its configuration changes. If process
+enumeration is unknown, the service fails safe and does not warn, close, or
+install.
 
 ## Runtime logs
 
