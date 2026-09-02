@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "9H-KTYns6KKEO6o7jvmD_"
+uri = "file://exports/nemesys-kubernetes-kustomize.zip"
+type = "unspecified"
+title = "Nemesys Kubernetes Kustomize package"
+description = "Complete local deploy/kubernetes package with base resources, test overlay, secret templates, registry template, and deployment README. No GitHub upload was performed."
+logical_id = "35978b34-713f-44e3-87f1-72793a20df8d"
+content_hash = "sha256:e23a6bf749dedc241aecb59a56406de7598ebf75825b0bbcccaf261f6e9efc29"
+size = 7257
+mtime_ms = 1788352932787
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:9b1b21c6-c38b-4e10-8d89-5f70cb6a6cc5/35978b34-713f-44e3-87f1-72793a20df8d/c9616402-2719-48cc-8e8b-015080318ea4"
+storage_version_token = "1788352936548664"
+content_type = "application/octet-stream"
