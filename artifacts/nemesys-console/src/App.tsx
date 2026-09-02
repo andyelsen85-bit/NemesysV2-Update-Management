@@ -42,6 +42,20 @@ function cx(...items: Array<string | false | undefined>) {
   return items.filter(Boolean).join(' ');
 }
 
+function listData<T>(value: unknown, resource: string): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === 'object') {
+    const envelope = value as Record<string, unknown>;
+    for (const key of ['data', 'items', 'results']) {
+      if (Array.isArray(envelope[key])) return envelope[key] as T[];
+    }
+  }
+  if (value !== undefined && value !== null) {
+    console.error(`Expected ${resource} API response to be an array.`, value);
+  }
+  return [];
+}
+
 function formatTime(value?: string | null) {
   if (!value) return 'Never';
   const date = new Date(value);
@@ -237,9 +251,9 @@ function OverviewPage() {
   const softwareQuery = useListSoftware();
   const auditQuery = useListAuditEntries({ limit: 5 });
   const summary = dashboard.data;
-  const clients = clientsQuery.data ?? [];
-  const policies = softwareQuery.data ?? [];
-  const audits = auditQuery.data ?? [];
+  const clients = listData<Client>(clientsQuery.data, 'clients');
+  const policies = listData<SoftwarePolicy>(softwareQuery.data, 'software policies');
+  const audits = listData<AuditEntry>(auditQuery.data, 'audit entries');
   const attention = clients.filter((client) => client.status !== 'online');
   const anyLoading = dashboard.isLoading || clientsQuery.isLoading || softwareQuery.isLoading || auditQuery.isLoading;
   const retry = () => { dashboard.refetch(); clientsQuery.refetch(); softwareQuery.refetch(); auditQuery.refetch(); };
@@ -278,7 +292,7 @@ function AuditRow({ entry, compact = false }: { entry: AuditEntry; compact?: boo
 function ClientsPage() {
   const query = useListClients();
   const revoke = useRevokeClient();
-  const clientList = query.data ?? [];
+  const clientList = listData<Client>(query.data, 'clients');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Client | null>(null);
   const filtered = clientList.filter((client) => `${client.name} ${client.hostname} ${client.address}`.toLowerCase().includes(search.toLowerCase()));
@@ -313,7 +327,8 @@ function SoftwarePage() {
   const [editor, setEditor] = useState<{ open: boolean; policy?: SoftwarePolicy }>({ open: false });
   const [search, setSearch] = useState('');
   const [feedback, setFeedback] = useState('');
-  const policies = (query.data ?? []).filter((policy) => `${policy.name} ${policy.executable}`.toLowerCase().includes(search.toLowerCase()));
+  const allPolicies = listData<SoftwarePolicy>(query.data, 'software policies');
+  const policies = allPolicies.filter((policy) => `${policy.name} ${policy.executable}`.toLowerCase().includes(search.toLowerCase()));
   const deletePolicy = (policy: SoftwarePolicy) => {
     if (!window.confirm(`Permanently delete the software policy "${policy.name}"? Existing audit history will be retained.`)) return;
     setFeedback('');
@@ -328,7 +343,7 @@ function SoftwarePage() {
   };
   return <div className="mx-auto max-w-[1380px]">
     <PageHeader eyebrow="Enforcement registry" title="Software policies" detail="Version rules are evaluated on the client. Keep executable paths, INI expectations, and grace windows explicit." action={<Button onClick={() => setEditor({ open: true })} data-testid="button-new-policy"><Plus size={15} /> New policy</Button>} />
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search policies" data-testid="input-search-policies" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search policy or executable" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fffdf8] pl-9 pr-3 text-xs outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{(query.data ?? []).filter((p) => p.enabled).length}</span> active policies</div></div>
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search policies" data-testid="input-search-policies" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search policy or executable" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fffdf8] pl-9 pr-3 text-xs outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{allPolicies.filter((p) => p.enabled).length}</span> active policies</div></div>
      {feedback && <div role="status" className="mb-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}
      {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={5} /> : policies.length === 0 ? <EmptyState icon={FileCog} title={search ? 'No matching policies' : 'No software policies'} detail={search ? 'Try a shorter name or executable path.' : 'Create a policy to define the versions clients must run.'} action={!search ? <Button onClick={() => setEditor({ open: true })}><Plus size={14} /> Create first policy</Button> : <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button>} /> : <div className="grid gap-4 lg:grid-cols-2">{policies.map((policy) => <PolicyCardUnified key={policy.id} policy={policy} onEdit={() => setEditor({ open: true, policy })} onDelete={() => deletePolicy(policy)} deleting={remove.isPending && remove.variables?.id === policy.id} />)}</div>}
      {editor.open && <UnifiedPolicyEditor policy={editor.policy} onClose={() => setEditor({ open: false })} />}
@@ -481,10 +496,12 @@ function AuditPage() {
   const clientsQuery = useListClients();
   const submit = useSubmitSyncReport();
   const [showReport, setShowReport] = useState(false);
+  const auditEntries = listData<AuditEntry>(query.data, 'audit entries');
+  const clients = listData<Client>(clientsQuery.data, 'clients');
   return <div className="mx-auto max-w-[1380px]">
     <PageHeader eyebrow="Evidence log" title="Audit trail" detail="A durable record of synchronization outcomes, observed application versions, and policy expectations." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => query.refetch()} disabled={query.isFetching} data-testid="button-refresh-audit"><RefreshCw size={14} /> Refresh</Button><Button onClick={() => setShowReport(true)} data-testid="button-record-report"><Plus size={15} /> Record report</Button></div>} />
-    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={7} /> : (query.data ?? []).length === 0 ? <EmptyState icon={Archive} title="No audit entries yet" detail="Synchronization results will be retained here as clients check in." action={<Button variant="secondary" onClick={() => setShowReport(true)}><Plus size={14} /> Record a report</Button>} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[900px] grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><span>Client</span><span>Timestamp</span><span>Result</span><span>Applications</span></div><div className="min-w-[760px] divide-y divide-[#edf0eb]">{(query.data ?? []).map((entry) => <AuditDetailRow key={entry.id} entry={entry} />)}</div></div>}
-    {showReport && <ReportModal clients={clientsQuery.data ?? []} onClose={() => setShowReport(false)} mutation={submit} />}
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={7} /> : auditEntries.length === 0 ? <EmptyState icon={Archive} title="No audit entries yet" detail="Synchronization results will be retained here as clients check in." action={<Button variant="secondary" onClick={() => setShowReport(true)}><Plus size={14} /> Record a report</Button>} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[900px] grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><span>Client</span><span>Timestamp</span><span>Result</span><span>Applications</span></div><div className="min-w-[760px] divide-y divide-[#edf0eb]">{auditEntries.map((entry) => <AuditDetailRow key={entry.id} entry={entry} />)}</div></div>}
+    {showReport && <ReportModal clients={clients} onClose={() => setShowReport(false)} mutation={submit} />}
   </div>;
 }
 
