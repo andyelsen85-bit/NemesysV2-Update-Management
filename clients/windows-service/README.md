@@ -45,6 +45,11 @@ it never closes the application merely because a warning timed out. A completed
 countdown or **Close application now** proceeds, while **Postpone** defers only
 when policy allows it.
 
+The GUI companion is built without a console window. Connection and
+authentication have a separate bounded deadline; the response deadline begins
+only after the warning message is sent and flushed, so it includes the full
+configured countdown plus a response grace period.
+
 The service uses process enumeration and `Kill(entireProcessTree: true)` under
 `LocalSystem` so managed processes can be closed across Windows sessions after a
 valid warning outcome.

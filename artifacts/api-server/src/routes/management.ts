@@ -88,7 +88,11 @@ async function requireHostnameForClient(clientId: string, req: Request, res: Res
 function toApiPolicy(policy: DbSoftwarePolicy) {
   const exeChecks = policy.exeChecks.length > 0
     ? policy.exeChecks
-    : policy.executable
+    : policy.ruleType !== "ini" &&
+      policy.executable &&
+      policy.executable !== "-" &&
+      policy.targetVersion &&
+      policy.targetVersion !== "-"
       ? [{ executable: policy.executable, targetVersion: policy.targetVersion }]
       : [];
   const iniChecks = policy.iniChecks.length > 0
@@ -160,6 +164,7 @@ async function sendSyncConfig(clientId: string, req: Request, res: Response, rec
     .from(softwarePoliciesTable)
     .where(eq(softwarePoliciesTable.enabled, true));
   const etag = `"${createHash("sha256").update(JSON.stringify({
+    syncConfigFormat: 2,
     syncIntervalSeconds: settings.syncIntervalSeconds,
     updateMode: settings.updateMode,
     normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,

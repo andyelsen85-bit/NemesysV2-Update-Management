@@ -143,7 +143,17 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                     syncEtag = null;
                     continue;
                 }
-                CloseManagedProcesses(new[] { item.Policy });
+                if (!CloseManagedProcesses(new[] { item.Policy }))
+                {
+                    logger.LogWarning(
+                        "Managed process closure did not complete for {ApplicationName}; skipping installation",
+                        item.Policy.Name);
+                    // Request a fresh configuration so process closure and the
+                    // installation can be retried rather than installing over
+                    // a process that may still be running.
+                    syncEtag = null;
+                    continue;
+                }
                 RunSilentInstallCommands(new[] { item.Policy });
             }
         }
@@ -200,26 +210,93 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             string.Join("; ", checks.Select(check => $"{check.Label}: {check.Expected}")));
     }
 
-    private void CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
+    private bool CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
     {
         var processNames = policies
             .SelectMany(policy => policy.SupervisedExecutables.Concat(policy.ExeChecks.Select(check => check.Executable)))
             .Select(Path.GetFileNameWithoutExtension)
             .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase);
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var closureSucceeded = true;
         foreach (var processName in processNames)
         {
-            foreach (var process in Process.GetProcessesByName(processName))
+            Process[] processes;
+            try
+            {
+                processes = Process.GetProcessesByName(processName);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Unable to enumerate {ProcessName} for closure", processName);
+                closureSucceeded = false;
+                continue;
+            }
+            if (processes.Length == 0)
+            {
+                logger.LogInformation("No running process matched {ProcessName}; it is already closed", processName);
+                continue;
+            }
+
+            foreach (var process in processes)
             {
                 try
                 {
                     process.Kill(entireProcessTree: true);
-                    logger.LogInformation("Closed {ProcessName} (PID {ProcessId})", processName, process.Id);
+                    if (process.WaitForExit(TimeSpan.FromSeconds(5)))
+                        logger.LogInformation("Confirmed closure of {ProcessName} (PID {ProcessId})", processName, process.Id);
+                    else
+                    {
+                        logger.LogWarning(
+                            "Timed out waiting for {ProcessName} (PID {ProcessId}) to close after kill request",
+                            processName, process.Id);
+                        closureSucceeded = false;
+                    }
                 }
-                catch (Exception exception) { logger.LogWarning(exception, "Unable to close {ProcessName}", processName); }
+                catch (Exception exception)
+                {
+                    logger.LogWarning(exception, "Unable to close {ProcessName}", processName);
+                    closureSucceeded = false;
+                }
                 finally { process.Dispose(); }
             }
         }
+
+        var survivors = new List<string>();
+        foreach (var processName in processNames)
+        {
+            try
+            {
+                foreach (var process in Process.GetProcessesByName(processName))
+                {
+                    try
+                    {
+                        survivors.Add($"{processName} (PID {process.Id})");
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception, "Unable to verify closure of {ProcessName}", processName);
+                closureSucceeded = false;
+            }
+        }
+
+        if (survivors.Count > 0)
+        {
+            logger.LogWarning(
+                "Managed processes remain after closure attempts: {SurvivingProcesses}",
+                string.Join(", ", survivors));
+            return false;
+        }
+        if (!closureSucceeded) return false;
+
+        logger.LogInformation("Managed process closure completed; no configured processes remain");
+        return true;
     }
 
     private void RunSilentInstallCommands(IEnumerable<SoftwarePolicy> policies)
@@ -378,8 +455,6 @@ internal static class SessionWarningChannel
     public static async Task<WarningOutcome> ShowAsync(
         string applicationName, int seconds, bool allowPostpone, ILogger logger, CancellationToken cancellationToken)
     {
-        using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        exchangeCancellation.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, seconds) + 5));
         try
         {
             await using var pipe = CreateServer();
@@ -395,8 +470,8 @@ internal static class SessionWarningChannel
                 !SessionCompanionLauncher.Launch(sessionId.Value, logger))
                 return WarningOutcome.CompanionUnavailable;
 
-            using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(exchangeCancellation.Token);
-            connectionCancellation.CancelAfter(TimeSpan.FromSeconds(5));
+            using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectionCancellation.CancelAfter(TimeSpan.FromSeconds(15));
             await pipe.WaitForConnectionAsync(connectionCancellation.Token);
             var isAuthenticatedUser = false;
             pipe.RunAsClient(() =>
@@ -408,15 +483,20 @@ internal static class SessionWarningChannel
             if (!isAuthenticatedUser || !IsExpectedSessionCompanion(pipe, sessionId.Value))
                 throw new UnauthorizedAccessException("The pipe client is not the installed NemesysV2 session companion.");
             logger.LogInformation("Warning companion connected and authenticated for {ApplicationName}", applicationName);
-            await JsonSerializer.SerializeAsync(pipe, new WarningMessage(applicationName, seconds, allowPostpone), JsonOptions.Default, exchangeCancellation.Token);
-            await pipe.FlushAsync(exchangeCancellation.Token);
-            var response = await JsonSerializer.DeserializeAsync<WarningResponse>(pipe, JsonOptions.Default, exchangeCancellation.Token);
+            await JsonSerializer.SerializeAsync(
+                pipe, new WarningMessage(applicationName, seconds, allowPostpone), JsonOptions.Default, connectionCancellation.Token);
+            await pipe.FlushAsync(connectionCancellation.Token);
+
+            using var responseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            responseCancellation.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, seconds) + 15));
+            var response = await JsonSerializer.DeserializeAsync<WarningResponse>(
+                pipe, JsonOptions.Default, responseCancellation.Token);
             if (response is null) throw new IOException("Warning companion closed without a response.");
             var outcome = allowPostpone && response.Postponed ? WarningOutcome.Postpone : WarningOutcome.Proceed;
             logger.LogInformation("Warning outcome for {ApplicationName}: {Outcome}", applicationName, outcome);
             return outcome;
         }
-        catch (Exception exception) when (exception is TimeoutException or IOException or UnauthorizedAccessException ||
+        catch (Exception exception) when (exception is TimeoutException or IOException or JsonException or ObjectDisposedException or UnauthorizedAccessException ||
             (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
             logger.LogWarning(exception, "Warning companion unavailable for {ApplicationName}", applicationName);
@@ -609,84 +689,85 @@ internal sealed class SessionCompanion
 {
     public static async Task RunAsync()
     {
-        await using var pipe = new NamedPipeClientStream(
-            ".",
-            "NemesysV2.UserSession",
-            PipeDirection.InOut,
-            PipeOptions.Asynchronous,
-            TokenImpersonationLevel.Identification);
         try
         {
+            await using var pipe = new NamedPipeClientStream(
+                ".",
+                "NemesysV2.UserSession",
+                PipeDirection.InOut,
+                PipeOptions.Asynchronous,
+                TokenImpersonationLevel.Identification);
             await pipe.ConnectAsync(5000);
-        }
-        catch (IOException)
-        {
-            return;
-        }
-        var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
-        if (warning is null) return;
+            var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
+            if (warning is null) return;
 
-        using var form = new Form
-        {
-            Width = 600, Height = 270, Text = "NemesysV2 update notice",
-            StartPosition = FormStartPosition.CenterScreen, TopMost = true,
-            FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false,
-            MinimizeBox = false, ControlBox = false, BackColor = Color.White,
-        };
-        var title = new Label
+            using var form = new Form
+            {
+                Width = 600, Height = 270, Text = "NemesysV2 update notice",
+                StartPosition = FormStartPosition.CenterScreen, TopMost = true,
+                FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false,
+                MinimizeBox = false, ControlBox = false, BackColor = Color.White,
+            };
+            var title = new Label
         {
             AutoSize = false, Left = 28, Top = 24, Width = 530, Height = 32,
             Font = new Font("Segoe UI Semibold", 16), Text = $"{warning.ApplicationName} needs to close",
         };
-        var detail = new Label
+            var detail = new Label
         {
             AutoSize = false, Left = 30, Top = 64, Width = 525, Height = 60,
             Font = new Font("Segoe UI", 10), ForeColor = Color.FromArgb(75, 85, 99),
             Text = "Maintenance is running\r\nPlease save your work. The application will close automatically so maintenance can continue.",
         };
-        var countdown = new Label
+            var countdown = new Label
         {
             AutoSize = false, Left = 30, Top = 132, Width = 525, Height = 28,
             TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI Semibold", 10),
             ForeColor = Color.FromArgb(153, 96, 0),
         };
-        var closeButton = new Button
+            var closeButton = new Button
         {
             Width = 170, Height = 36, Left = 382, Top = 184, Text = "Close application now",
             Font = new Font("Segoe UI Semibold", 9), BackColor = Color.FromArgb(8, 118, 71),
             ForeColor = Color.White, FlatStyle = FlatStyle.Flat,
         };
-        closeButton.FlatAppearance.BorderSize = 0;
-        var postponed = false;
-        closeButton.Click += (_, _) => form.Close();
-        form.Controls.AddRange(new Control[] { title, detail, countdown, closeButton });
-        if (warning.AllowPostpone)
-        {
-            var postponeButton = new Button
+            closeButton.FlatAppearance.BorderSize = 0;
+            var postponed = false;
+            closeButton.Click += (_, _) => form.Close();
+            form.Controls.AddRange(new Control[] { title, detail, countdown, closeButton });
+            if (warning.AllowPostpone)
             {
-                Width = 130, Height = 36, Left = 242, Top = 184, Text = "Postpone",
-                Font = new Font("Segoe UI Semibold", 9), FlatStyle = FlatStyle.System,
-            };
-            postponeButton.Click += (_, _) =>
+                var postponeButton = new Button
+                {
+                    Width = 130, Height = 36, Left = 242, Top = 184, Text = "Postpone",
+                    Font = new Font("Segoe UI Semibold", 9), FlatStyle = FlatStyle.System,
+                };
+                postponeButton.Click += (_, _) =>
+                {
+                    postponed = true;
+                    form.Close();
+                };
+                form.Controls.Add(postponeButton);
+            }
+            using var timer = new System.Windows.Forms.Timer { Interval = 1000 };
+            var remaining = warning.Seconds;
+            countdown.Text = $"Closing in 00:{remaining:00}";
+            timer.Tick += (_, _) =>
             {
-                postponed = true;
-                form.Close();
+                remaining--;
+                countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
+                if (remaining <= 0) { timer.Stop(); form.Close(); }
             };
-            form.Controls.Add(postponeButton);
+            timer.Start();
+            Application.Run(form);
+            await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
+            await pipe.FlushAsync();
         }
-        using var timer = new System.Windows.Forms.Timer { Interval = 1000 };
-        var remaining = warning.Seconds;
-        countdown.Text = $"Closing in 00:{remaining:00}";
-        timer.Tick += (_, _) =>
+        catch (Exception exception) when (exception is OperationCanceledException or TimeoutException or IOException or JsonException or ObjectDisposedException)
         {
-            remaining--;
-            countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
-            if (remaining <= 0) { timer.Stop(); form.Close(); }
-        };
-        timer.Start();
-        Application.Run(form);
-        await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
-        await pipe.FlushAsync();
+            // The service treats an unavailable companion as fail-safe. IPC
+            // shutdown must not turn the interactive helper into a crashed process.
+        }
     }
 }
 
