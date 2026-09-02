@@ -45,30 +45,14 @@ docker tag postgres:16-alpine nexus.example.com:8083/postgres:16-alpine
 docker push nexus.example.com:8083/postgres:16-alpine
 ```
 
-The test API connects to PostgreSQL through the internal `pg` Service. After
-PostgreSQL is ready, apply the idempotent bootstrap and incremental migrations
-before waiting for the API rollout. The bootstrap is safe to repeat and creates
-all tables when the database is new:
-
-```bash
-kubectl -n nemesys exec -i deployment/pg-deployment -- \
-  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
-  < deploy/kubernetes/migrations/000-initial-schema.sql
-
-kubectl -n nemesys exec -i deployment/pg-deployment -- \
-  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
-  < deploy/kubernetes/migrations/001-client-sync-timestamps.sql
-
-kubectl -n nemesys exec -i deployment/pg-deployment -- \
-  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
-  < deploy/kubernetes/migrations/002-software-policy-postpone.sql
-
-kubectl -n nemesys rollout restart deployment/nemesys-deployment
-kubectl -n nemesys rollout status deployment/nemesys-deployment
-```
+The API automatically provisions the Nemesys schema during startup using
+idempotent, additive DDL. It creates missing tables and adds missing client
+poll-timestamp and policy-postpone columns before seed data is inserted. No
+manual schema command is required. The database user in `DATABASE_URL` must
+have permission to create tables and alter tables.
 
 For a database reachable from a trusted administration environment, the full
-Drizzle schema push remains an alternative provisioning method:
+Drizzle schema push remains an optional alternative provisioning method:
 
 ```bash
 DATABASE_URL='postgresql://...' pnpm --filter @workspace/db run push

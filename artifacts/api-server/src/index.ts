@@ -1,5 +1,6 @@
 import { logger } from "./lib/logger";
 import { ensureSeedData } from "./lib/seed";
+import { ensureDatabaseSchema } from "@workspace/db";
 import { startRuntimeServer } from "./runtime-server";
 
 const rawPort = process.env["PORT"];
@@ -17,6 +18,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 try {
+  await ensureDatabaseSchema();
   await ensureSeedData();
 } catch (error) {
   const hasMissingRelation = (value: unknown): boolean => {
@@ -31,7 +33,7 @@ try {
   if (hasMissingRelation(error)) {
     logger.fatal(
       { err: error },
-      "PostgreSQL is reachable but the Nemesys schema is missing. Apply deploy/kubernetes/migrations/000-initial-schema.sql before starting the API.",
+      "PostgreSQL is reachable but automatic Nemesys schema initialization failed. Check database permissions and connectivity.",
     );
   } else {
     logger.fatal({ err: error }, "Unable to initialize Nemesys seed data");
