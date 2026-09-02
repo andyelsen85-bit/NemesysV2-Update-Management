@@ -1,0 +1,11 @@
+# Replace this template with your SealedSecret or an existing registry Secret
+# before applying the overlay. Never commit real registry credentials here.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: regcred
+  namespace: nemesys
+type: kubernetes.io/dockerconfigjson
+stringData:
+  .dockerconfigjson: |
+    {"auths":{"srvnexusint.hopital.chdn.lan:6443":{"username":"replace-me","password":"replace-me"}}}

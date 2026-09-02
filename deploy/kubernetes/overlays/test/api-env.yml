@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-env
+  namespace: nemesys
+data:
+  NODE_ENV: "production"
+  PORT: "8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-env-secret
+  namespace: nemesys
+type: Opaque
+stringData:
+  DATABASE_URL: "postgresql://nemesys:replace-with-test-db-password@pg:5432/nemesys"
+  SESSION_SECRET: "replace-with-a-long-random-session-secret"
+  NEMESYS_ADMIN_USERNAME: "admin"
+  NEMESYS_ADMIN_PASSWORD: "replace-with-a-strong-admin-password"

@@ -1,0 +1,5 @@
+resources:
+  - deployment.yml
+  - web-env.yml
+  - service.yml
+  - ingress.yml

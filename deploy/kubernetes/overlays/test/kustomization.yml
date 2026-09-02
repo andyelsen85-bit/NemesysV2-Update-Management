@@ -1,0 +1,14 @@
+namespace: nemesys
+
+resources:
+  - ../../base
+  - api-env.yml
+  - pg-deployment.yml
+  - pg-env.yml
+  - pvc.yml
+
+images:
+  - name: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-api-server
+    newTag: sha-ae25dcfab801dedb46e66db63480e13d678fae68
+  - name: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-console
+    newTag: sha-ae25dcfab801dedb46e66db63480e13d678fae68

@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pg-deployment
+  namespace: nemesys
+  labels:
+    app: pg
+    team: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pg
+  template:
+    metadata:
+      labels:
+        app: pg
+        team: infra
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: pg
+          image: srvnexusint.hopital.chdn.lan:8443/postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: pg-env
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: pg-data
+              mountPath: /var/lib/postgresql
+      volumes:
+        - name: pg-data
+          persistentVolumeClaim:
+            claimName: longhorn-nemesys-pg-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pg
+  namespace: nemesys
+  labels:
+    app: pg
+    team: infra
+spec:
+  selector:
+    app: pg
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: postgres

@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemesys-deployment
+  namespace: nemesys
+  labels:
+    app: nemesys
+    team: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nemesys
+  template:
+    metadata:
+      labels:
+        app: nemesys
+        team: infra
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: api
+          image: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-api-server:latest
+          ports:
+            - name: api-http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: api-env
+            - secretRef:
+                name: api-env-secret
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: api-http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: api-http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+        - name: nemesys-web
+          image: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-console:latest
+          ports:
+            - name: web-http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: web-env
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: web-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: web-http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
