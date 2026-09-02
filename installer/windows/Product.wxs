@@ -1,4 +1,6 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix
+  xmlns="http://wixtoolset.org/schemas/v4/wxs"
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package
     Name="NemesysV2 Client"
     Manufacturer="NemesysV2"
@@ -21,12 +23,7 @@
     <Property Id="NEMESYS_PORT" Value="5187" Secure="yes" />
     <Property Id="NEMESYS_API_KEY" Hidden="yes" Secure="yes" />
 
-    <UI>
-      <DialogRef Id="WixUI_InstallDir" />
-      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Condition="1" />
-      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Condition="1" />
-      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="1" />
-    </UI>
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
 
     <CustomAction
       Id="ConfigureClient"
