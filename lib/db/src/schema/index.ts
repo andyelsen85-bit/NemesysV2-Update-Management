@@ -19,6 +19,7 @@ export const softwarePoliciesTable = pgTable("nemesys_software_policies", {
   executable: text("executable").notNull(),
   targetVersion: text("target_version").notNull(),
   ruleType: text("rule_type").notNull(),
+  supervisedExecutables: jsonb("supervised_executables").$type<string[]>().notNull().default([]),
   exeChecks: jsonb("exe_checks").$type<Array<{ executable: string; targetVersion: string; installCommand?: string }>>().notNull().default([]),
   iniChecks: jsonb("ini_checks").$type<Array<{ filePath: string; section: string; key: string; expectedValue: string }>>().notNull().default([]),
   iniRules: jsonb("ini_rules").$type<Array<{ section: string; key: string; expectedValue: string }>>().notNull().default([]),

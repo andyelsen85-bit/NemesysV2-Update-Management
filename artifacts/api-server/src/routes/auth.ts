@@ -130,7 +130,11 @@ router.post("/password", requireAdmin, async (req, res): Promise<void> => {
     adminUsername: serverSettingsTable.adminUsername,
     adminPasswordHash: serverSettingsTable.adminPasswordHash,
   }).from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  if (!username || !settings?.adminPasswordHash || !await verifyPassword(currentPassword, settings.adminPasswordHash)) {
+  if (!username || username !== settings?.adminUsername) {
+    res.status(403).json({ error: "Only the local administrator account can change this password." });
+    return;
+  }
+  if (!settings.adminPasswordHash || !await verifyPassword(currentPassword, settings.adminPasswordHash)) {
     res.status(401).json({ error: "Current password is invalid" });
     return;
   }

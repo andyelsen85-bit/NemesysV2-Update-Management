@@ -16,6 +16,8 @@ export interface SoftwarePolicy {
   executable: string;
   targetVersion: string;
   ruleType: SoftwarePolicyRuleType;
+  /** Executable paths whose running processes are supervised and closed before a managed update. */
+  supervisedExecutables: string[];
   exeChecks: ExeCheck[];
   iniChecks: IniCheck[];
   iniRules: IniRule[];

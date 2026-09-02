@@ -95,6 +95,7 @@ export const GetClientSyncConfigResponse = zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -135,6 +136,7 @@ export const ListSoftwareResponseItem = zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -176,6 +178,7 @@ export const CreateSoftwareBody = zod.object({
   "executable": zod.string().optional(),
   "targetVersion": zod.string().optional(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).optional().describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -210,6 +213,7 @@ export const CreateSoftwareResponse = zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -254,6 +258,7 @@ export const UpdateSoftwareBody = zod.object({
   "executable": zod.string().optional(),
   "targetVersion": zod.string().optional(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).optional().describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -288,6 +293,7 @@ export const UpdateSoftwareResponse = zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
@@ -728,6 +734,7 @@ export const GetSyncConfigResponse = zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),
   "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
   "targetVersion": zod.string(),

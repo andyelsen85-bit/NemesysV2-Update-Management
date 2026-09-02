@@ -85,7 +85,7 @@ function toApiPolicy(policy: DbSoftwarePolicy) {
   const iniChecks = policy.iniChecks.length > 0
     ? policy.iniChecks
     : policy.iniRules.map((rule) => ({ filePath: "", ...rule }));
-  return { ...policy, exeChecks, iniChecks };
+  return { ...policy, supervisedExecutables: policy.supervisedExecutables ?? [], exeChecks, iniChecks };
 }
 
 router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
@@ -186,6 +186,7 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
     targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
     ruleType: parsed.data.ruleType,
+    supervisedExecutables: parsed.data.supervisedExecutables ?? [],
     exeChecks,
     iniChecks,
     iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
@@ -220,6 +221,7 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
       executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
       targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
       ruleType: parsed.data.ruleType,
+      supervisedExecutables: parsed.data.supervisedExecutables ?? [],
       exeChecks,
       iniChecks,
       iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),

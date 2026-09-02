@@ -110,8 +110,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     private void CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
     {
         var processNames = policies
-            .SelectMany(policy => policy.ExeChecks)
-            .Select(check => Path.GetFileNameWithoutExtension(check.Executable))
+            .SelectMany(policy => policy.SupervisedExecutables.Concat(policy.ExeChecks.Select(check => check.Executable)))
+            .Select(Path.GetFileNameWithoutExtension)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase);
         foreach (var processName in processNames)
@@ -248,6 +248,7 @@ internal sealed record SoftwarePolicy(
     string Name,
     string Executable,
     string TargetVersion,
+    List<string> SupervisedExecutables,
     List<ExeCheck> ExeChecks,
     List<IniCheck> IniChecks,
     bool UpdateMode,

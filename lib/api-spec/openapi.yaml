@@ -608,7 +608,7 @@ components:
         expectedValue: { type: string }
     SoftwarePolicy:
       type: object
-      required: [id, name, executable, targetVersion, ruleType, exeChecks, iniChecks, iniRules, graceSeconds, enabled, lastUpdated]
+      required: [id, name, executable, targetVersion, ruleType, supervisedExecutables, exeChecks, iniChecks, iniRules, graceSeconds, enabled, lastUpdated]
       properties:
         id: { type: string }
         name: { type: string }
@@ -617,6 +617,10 @@ components:
         ruleType:
           type: string
           enum: [application, file-version, ini]
+        supervisedExecutables:
+          type: array
+          description: Executable paths whose running processes are supervised and closed before a managed update.
+          items: { type: string }
         exeChecks:
           type: array
           items: { $ref: "#/components/schemas/ExeCheck" }
@@ -643,6 +647,10 @@ components:
         ruleType:
           type: string
           enum: [application, file-version, ini]
+        supervisedExecutables:
+          type: array
+          description: Executable paths whose running processes are supervised and closed before a managed update.
+          items: { type: string }
         exeChecks:
           type: array
           items: { $ref: "#/components/schemas/ExeCheck" }
