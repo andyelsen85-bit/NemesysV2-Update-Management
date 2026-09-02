@@ -13,10 +13,23 @@ namespace NemesysV2.Client;
 
 internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<SyncWorker> logger) : BackgroundService
 {
-    private readonly HttpClient http = new();
+    // The control plane certificate is administrator-managed and may be
+    // self-signed, private-CA issued, expired, or hostname-mismatched. API-key
+    // authentication still protects every synchronization request.
+    private readonly HttpClient http = CreateHttpClient();
     private string? clientId;
     private string? syncEtag;
     private SyncConfig? cachedSyncConfig;
+
+    private static HttpClient CreateHttpClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback =
+                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        };
+        return new HttpClient(handler);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

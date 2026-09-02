@@ -16,6 +16,11 @@ NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /apiKey "<one-
 `/api` and defaults to standard HTTPS port `443`. `/port` remains available
 only as an optional compatibility override.
 
+The Windows service intentionally does not validate the server certificate.
+This allows synchronization with self-signed, private-CA, expired, or
+hostname-mismatched certificates. Protect the connection with a trusted
+network path and keep the API key confidential.
+
 The installer:
 
 - stores the API key using machine-scoped DPAPI;
