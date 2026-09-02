@@ -16,6 +16,10 @@ export interface Client {
   status: ClientStatus;
   /** @nullable */
   lastSync: Date | null;
+  /** @nullable */
+  lastPoll: Date | null;
+  /** @nullable */
+  lastSuccessfulSync: Date | null;
   syncVersion: string;
   certificateStatus: ClientCertificateStatus;
 }

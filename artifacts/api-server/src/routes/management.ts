@@ -1,6 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, count, desc, eq, gte } from "drizzle-orm";
+import { and, count, desc, eq, gte, max, ne } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   auditEntriesTable,
@@ -14,6 +14,7 @@ import { requireAdmin } from "./auth";
 import {
   CreateSoftwareBody,
   CreateSoftwareResponse,
+  DeleteSoftwareParams,
   GetDashboardResponse,
   GetServerSettingsResponse,
   GetSyncConfigQueryParams,
@@ -68,9 +69,17 @@ async function requireHostnameForClient(clientId: string, req: Request, res: Res
     res.status(400).json({ error: "X-Nemesys-Hostname header is required" });
     return false;
   }
-  const [client] = await db.select({ id: clientsTable.id }).from(clientsTable).where(and(eq(clientsTable.id, clientId), eq(clientsTable.hostname, hostname))).limit(1);
+  const [client] = await db
+    .select({ id: clientsTable.id, status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
+    .from(clientsTable)
+    .where(and(eq(clientsTable.id, clientId), eq(clientsTable.hostname, hostname)))
+    .limit(1);
   if (!client) {
     res.status(403).json({ error: "Client hostname does not match the enrolled client" });
+    return false;
+  }
+  if (client.status === "revoked" || client.certificateStatus === "revoked") {
+    res.status(403).json({ error: "Client access is revoked" });
     return false;
   }
   return true;
@@ -128,7 +137,14 @@ router.post("/clients/:id/revoke", requireAdmin, async (req, res): Promise<void>
   res.json(RevokeClientResponse.parse(client));
 });
 
-async function sendSyncConfig(clientId: string, res: Response): Promise<void> {
+function matchesEtag(header: string | undefined, etag: string): boolean {
+  return header?.split(",").some((candidate) => {
+    const normalized = candidate.trim();
+    return normalized === etag || normalized === `W/${etag}`;
+  }) ?? false;
+}
+
+async function sendSyncConfig(clientId: string, req: Request, res: Response, recordClientPoll = false): Promise<void> {
   const settings = await getDefaultSettings();
   if (!settings) {
     res.status(404).json({ error: "Server settings not found" });
@@ -139,20 +155,69 @@ async function sendSyncConfig(clientId: string, res: Response): Promise<void> {
     res.status(404).json({ error: "Client not found" });
     return;
   }
+  const [policyState] = await db
+    .select({ count: count(), latestUpdated: max(softwarePoliciesTable.lastUpdated) })
+    .from(softwarePoliciesTable)
+    .where(eq(softwarePoliciesTable.enabled, true));
+  const etag = `"${createHash("sha256").update(JSON.stringify({
+    syncIntervalSeconds: settings.syncIntervalSeconds,
+    updateMode: settings.updateMode,
+    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
+    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
+    enabledPolicyCount: Number(policyState?.count ?? 0),
+    latestPolicyUpdate: policyState?.latestUpdated?.toISOString() ?? null,
+  })).digest("hex")}"`;
+  res.setHeader("ETag", etag);
+  res.setHeader("Cache-Control", "private, no-cache");
+  const notModified = recordClientPoll && matchesEtag(req.header("if-none-match"), etag);
+  if (notModified) {
+    if (recordClientPoll) {
+      const [updatedClient] = await db.update(clientsTable)
+        .set({ lastPoll: new Date(), status: "online" })
+        .where(and(
+          eq(clientsTable.id, clientId),
+          ne(clientsTable.status, "revoked"),
+          ne(clientsTable.certificateStatus, "revoked"),
+        ))
+        .returning({ id: clientsTable.id });
+      if (!updatedClient) {
+        res.status(403).json({ error: "Client access is revoked" });
+        return;
+      }
+    }
+    res.status(304).end();
+    return;
+  }
   const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
   const applicationUpdateMode = policies.some((policy) => policy.updateMode);
   const shortestApplicationTimeout = policies
     .filter((policy) => policy.updateMode)
     .reduce((shortest, policy) => Math.min(shortest, policy.updateModeCloseTimeoutSeconds), settings.updateModeCloseTimeoutSeconds);
-  res.json(GetSyncConfigResponse.parse({
+  const config = GetSyncConfigResponse.parse({
     clientId,
     syncIntervalSeconds: settings.syncIntervalSeconds,
-    configVersion: `${settings.updateMode ? "update" : "normal"}-${settings.syncIntervalSeconds}-${settings.normalCloseTimeoutSeconds}-${settings.updateModeCloseTimeoutSeconds}`,
+    configVersion: etag.slice(1, -1),
     updateMode: applicationUpdateMode,
     normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
     closeOnStartTimeoutSeconds: applicationUpdateMode ? shortestApplicationTimeout : settings.normalCloseTimeoutSeconds,
     policies: policies.map(toApiPolicy),
-  }));
+  });
+  if (recordClientPoll) {
+    const now = new Date();
+    const [updatedClient] = await db.update(clientsTable)
+      .set({ lastPoll: now, lastSuccessfulSync: now, status: "online" })
+      .where(and(
+        eq(clientsTable.id, clientId),
+        ne(clientsTable.status, "revoked"),
+        ne(clientsTable.certificateStatus, "revoked"),
+      ))
+      .returning({ id: clientsTable.id });
+    if (!updatedClient) {
+      res.status(403).json({ error: "Client access is revoked" });
+      return;
+    }
+  }
+  res.json(config);
 }
 
 router.get("/clients/:id/sync-config", requireAdmin, async (req, res): Promise<void> => {
@@ -161,7 +226,7 @@ router.get("/clients/:id/sync-config", requireAdmin, async (req, res): Promise<v
     res.status(400).json({ error: params.error.message });
     return;
   }
-  await sendSyncConfig(params.data.id, res);
+  await sendSyncConfig(params.data.id, req, res);
 });
 
 router.get("/software", requireAdmin, async (_req, res): Promise<void> => {
@@ -238,6 +303,20 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
     return;
   }
   res.json(UpdateSoftwareResponse.parse(toApiPolicy(policy)));
+});
+
+router.delete("/software/:id", requireAdmin, async (req, res): Promise<void> => {
+  const params = DeleteSoftwareParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [deleted] = await db.delete(softwarePoliciesTable).where(eq(softwarePoliciesTable.id, params.data.id)).returning();
+  if (!deleted) {
+    res.status(404).json({ error: "Software policy not found" });
+    return;
+  }
+  res.sendStatus(204);
 });
 
 router.get("/audit", requireAdmin, async (req, res): Promise<void> => {
@@ -363,7 +442,7 @@ router.get("/sync/config", requireClientApiKey, async (req, res): Promise<void> 
     return;
   }
   if (!await requireHostnameForClient(parsed.data.clientId, req, res)) return;
-  await sendSyncConfig(parsed.data.clientId, res);
+  await sendSyncConfig(parsed.data.clientId, req, res, true);
 });
 
 router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void> => {
@@ -379,6 +458,15 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
   }
   const id = `host-${createHash("sha256").update(hostname.toLowerCase()).digest("hex").slice(0, 16)}`;
   const now = new Date();
+  const [existingClient] = await db
+    .select({ status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
+    .from(clientsTable)
+    .where(eq(clientsTable.id, id))
+    .limit(1);
+  if (existingClient?.status === "revoked" || existingClient?.certificateStatus === "revoked") {
+    res.status(403).json({ error: "Client access is revoked" });
+    return;
+  }
   const [client] = await db
     .insert(clientsTable)
     .values({
@@ -397,11 +485,14 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
         name: hostname,
         hostname,
         address: address ?? req.ip ?? "unknown",
-        status: "online",
         lastSync: now,
       },
     })
     .returning();
+  if (client.status === "revoked" || client.certificateStatus === "revoked") {
+    res.status(403).json({ error: "Client access is revoked" });
+    return;
+  }
   res.json(client);
 });
 
@@ -413,12 +504,23 @@ router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void>
   }
   if (!await requireHostnameForClient(parsed.data.clientId, req, res)) return;
   const now = new Date();
+  const [updatedClient] = await db.update(clientsTable)
+    .set({ lastSync: now, status: "online" })
+    .where(and(
+      eq(clientsTable.id, parsed.data.clientId),
+      ne(clientsTable.status, "revoked"),
+      ne(clientsTable.certificateStatus, "revoked"),
+    ))
+    .returning({ id: clientsTable.id });
+  if (!updatedClient) {
+    res.status(403).json({ error: "Client access is revoked" });
+    return;
+  }
   const [entry] = await db.insert(auditEntriesTable).values({
     id: `audit-${crypto.randomUUID()}`,
     ...parsed.data,
     timestamp: now,
   }).returning();
-  await db.update(clientsTable).set({ lastSync: now, status: "online" }).where(eq(clientsTable.id, parsed.data.clientId));
   res.status(201).json(SubmitSyncReportResponse.parse(entry));
 });
 

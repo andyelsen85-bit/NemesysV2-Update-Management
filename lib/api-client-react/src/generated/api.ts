@@ -677,6 +677,77 @@ export const useUpdateSoftware = <TError = ErrorType<void>,
       return useMutation(getUpdateSoftwareMutationOptions(options));
     }
 
+export const getDeleteSoftwareUrl = (id: string,) => {
+
+
+
+
+  return `/api/software/${id}`
+}
+
+/**
+ * @summary Delete a software policy
+ */
+export const deleteSoftware = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteSoftwareUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteSoftwareMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSoftware>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSoftware>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteSoftware'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSoftware>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteSoftware(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteSoftwareMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSoftware>>>
+
+    export type DeleteSoftwareMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a software policy
+ */
+export const useDeleteSoftware = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSoftware>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteSoftware>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteSoftwareMutationOptions(options));
+    }
+
 export const getListAuditEntriesUrl = (params?: ListAuditEntriesParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -2119,7 +2190,7 @@ export const getGetSyncConfigQueryKey = (params?: GetSyncConfigParams,) => {
     }
 
 
-export const getGetSyncConfigQueryOptions = <TData = Awaited<ReturnType<typeof getSyncConfig>>, TError = ErrorType<unknown>>(params: GetSyncConfigParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSyncConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetSyncConfigQueryOptions = <TData = Awaited<ReturnType<typeof getSyncConfig>>, TError = ErrorType<void>>(params: GetSyncConfigParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSyncConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -2138,14 +2209,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetSyncConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getSyncConfig>>>
-export type GetSyncConfigQueryError = ErrorType<unknown>
+export type GetSyncConfigQueryError = ErrorType<void>
 
 
 /**
  * @summary Get effective client sync configuration
  */
 
-export function useGetSyncConfig<TData = Awaited<ReturnType<typeof getSyncConfig>>, TError = ErrorType<unknown>>(
+export function useGetSyncConfig<TData = Awaited<ReturnType<typeof getSyncConfig>>, TError = ErrorType<void>>(
  params: GetSyncConfigParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSyncConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {

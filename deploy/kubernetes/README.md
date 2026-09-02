@@ -47,19 +47,26 @@ docker push nexus.example.com:8083/postgres:16-alpine
 ```
 
 The test API connects to PostgreSQL through the internal `pg` Service. Apply the
-additive Drizzle schema update after PostgreSQL is ready and before using the
-control center:
+schema after PostgreSQL is ready and before rolling out an API image that expects
+new columns. For the client poll timestamps, run the included idempotent
+migration:
+
+```bash
+kubectl -n nemesys exec -i deployment/pg-deployment -- \
+  psql -U nemesys -d nemesys \
+  < deploy/kubernetes/migrations/001-client-sync-timestamps.sql
+```
+
+Use the full Drizzle schema push when provisioning a new empty database:
 
 ```bash
 DATABASE_URL='postgresql://...' pnpm --filter @workspace/db run push
 ```
 
-This creates the Nemesys administrator, LDAP, SSL, per-application policy, and
-encrypted client-key columns/tables without deleting existing data. Use the
-cluster’s secret-management process rather than committing the connection
-string to a shell history or repository. The PostgreSQL Deployment has one replica, so
-configure PostgreSQL backups and understand that this is not a highly available
-database topology.
+Use the cluster’s secret-management process rather than committing the
+connection string to a shell history or repository. The PostgreSQL Deployment
+has one replica, so configure PostgreSQL backups and understand that this is not
+a highly available database topology.
 
 The Ingress sends `/api/*` to the API and all other paths to the console. The
 API deployment is replica-safe because runtime state is held in PostgreSQL and

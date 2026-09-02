@@ -9,6 +9,8 @@ export const clientsTable = pgTable("nemesys_clients", {
   address: text("address").notNull(),
   status: text("status").notNull().default("stale"),
   lastSync: timestamp("last_sync", { withTimezone: true }),
+  lastPoll: timestamp("last_poll", { withTimezone: true }),
+  lastSuccessfulSync: timestamp("last_successful_sync", { withTimezone: true }),
   syncVersion: text("sync_version").notNull().default("1.0.0"),
   certificateStatus: text("certificate_status").notNull().default("valid"),
 });

@@ -39,6 +39,8 @@ export const ListClientsResponseItem = zod.object({
   "address": zod.string(),
   "status": zod.enum(['online', 'stale', 'revoked']),
   "lastSync": zod.coerce.date().nullable(),
+  "lastPoll": zod.coerce.date().nullable(),
+  "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })
@@ -59,6 +61,8 @@ export const RevokeClientResponse = zod.object({
   "address": zod.string(),
   "status": zod.enum(['online', 'stale', 'revoked']),
   "lastSync": zod.coerce.date().nullable(),
+  "lastPoll": zod.coerce.date().nullable(),
+  "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })
@@ -316,6 +320,16 @@ export const UpdateSoftwareResponse = zod.object({
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
+
+
+/**
+ * @summary Delete a software policy
+ */
+export const DeleteSoftwareParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const DeleteSoftwareResponse = zod.void()
 
 
 /**
@@ -707,7 +721,8 @@ export const GetSyncConfigQueryParams = zod.object({
 
 export const GetSyncConfigHeader = zod.object({
   "X-Nemesys-API-Key": zod.string().describe('Shared client API key delivered during silent installation.'),
-  "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
+  "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.'),
+  "If-None-Match": zod.string().optional().describe('Previously returned synchronization configuration ETag.')
 })
 
 export const getSyncConfigResponseNormalCloseTimeoutSecondsMin = 5;
@@ -779,6 +794,8 @@ export const EnrollClientResponse = zod.object({
   "address": zod.string(),
   "status": zod.enum(['online', 'stale', 'revoked']),
   "lastSync": zod.coerce.date().nullable(),
+  "lastPoll": zod.coerce.date().nullable(),
+  "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })

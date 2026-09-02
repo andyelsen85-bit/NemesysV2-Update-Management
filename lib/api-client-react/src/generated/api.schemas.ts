@@ -66,6 +66,10 @@ export interface Client {
   status: ClientStatus;
   /** @nullable */
   lastSync: string | null;
+  /** @nullable */
+  lastPoll: string | null;
+  /** @nullable */
+  lastSuccessfulSync: string | null;
   syncVersion: string;
   certificateStatus: ClientCertificateStatus;
 }
@@ -405,6 +409,11 @@ export type ClientApiKeyParameter = string;
  * Windows hostname/computer name used as client identity.
  */
 export type ClientHostnameParameter = string;
+
+/**
+ * Previously returned synchronization configuration ETag.
+ */
+export type IfNoneMatchParameter = string;
 
 export type ListAuditEntriesParams = {
 /**

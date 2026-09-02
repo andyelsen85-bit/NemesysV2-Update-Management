@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
@@ -11,6 +12,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 {
     private readonly HttpClient http = new();
     private string? clientId;
+    private string? syncEtag;
+    private SyncConfig? cachedSyncConfig;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -20,14 +23,19 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             configuration.Server,
             configuration.Port);
 
+        var initialJitterSeconds = Random.Shared.Next(0, 31);
+        logger.LogDebug("Initial synchronization jitter is {DelaySeconds} seconds", initialJitterSeconds);
+        await Task.Delay(TimeSpan.FromSeconds(initialJitterSeconds), stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 clientId ??= await EnrollAsync(stoppingToken);
-                var sync = await GetSyncConfigAsync(clientId, stoppingToken);
-                await EvaluateAndReportAsync(sync, stoppingToken);
-                await Task.Delay(TimeSpan.FromSeconds(Math.Max(10, sync.SyncIntervalSeconds)), stoppingToken);
+                var poll = await GetSyncConfigAsync(clientId, stoppingToken);
+                if (poll.Modified)
+                    await EvaluateAndReportAsync(poll.Config, stoppingToken);
+                await Task.Delay(GetPollDelay(poll.Config.SyncIntervalSeconds), stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -37,10 +45,10 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             {
                 logger.LogError(
                     exception,
-                    "NemesysV2 synchronization failed; retrying in 30 seconds against {Server}:{Port}",
+                    "NemesysV2 synchronization failed; retrying against {Server}:{Port}",
                     configuration.Server,
                     configuration.Port);
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(30 + Random.Shared.Next(0, 16)), stoppingToken);
             }
         }
     }
@@ -56,13 +64,26 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return client.Id;
     }
 
-    private async Task<SyncConfig> GetSyncConfigAsync(string id, CancellationToken cancellationToken)
+    private async Task<SyncPollResult> GetSyncConfigAsync(string id, CancellationToken cancellationToken)
     {
         using var request = CreateRequest(HttpMethod.Get, $"/sync/config?clientId={Uri.EscapeDataString(id)}");
+        if (!string.IsNullOrWhiteSpace(syncEtag))
+            request.Headers.TryAddWithoutValidation("If-None-Match", syncEtag);
         using var response = await http.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotModified)
+        {
+            if (cachedSyncConfig is null)
+                throw new InvalidOperationException("Server returned 304 before the client had cached synchronization configuration.");
+            logger.LogDebug("Synchronization configuration unchanged; server returned 304 for {Hostname}", configuration.Hostname);
+            return new SyncPollResult(cachedSyncConfig, false);
+        }
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadFromJsonAsync<SyncConfig>(JsonOptions.Default, cancellationToken)
+        var sync = await response.Content.ReadFromJsonAsync<SyncConfig>(JsonOptions.Default, cancellationToken)
             ?? throw new InvalidOperationException("Sync configuration response was empty.");
+        syncEtag = response.Headers.ETag?.ToString();
+        cachedSyncConfig = sync;
+        logger.LogInformation("Downloaded synchronization configuration {ConfigVersion} for {Hostname}", sync.ConfigVersion, configuration.Hostname);
+        return new SyncPollResult(sync, true);
     }
 
     private async Task EvaluateAndReportAsync(SyncConfig sync, CancellationToken cancellationToken)
@@ -170,6 +191,13 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return request;
     }
 
+    private static TimeSpan GetPollDelay(int intervalSeconds)
+    {
+        var baseline = Math.Max(10, intervalSeconds);
+        var jittered = baseline * (0.9 + Random.Shared.NextDouble() * 0.2);
+        return TimeSpan.FromSeconds(Math.Max(10, jittered));
+    }
+
     private static string ResolveAddress() => "windows-client";
 
     private static string ReadIniValue(string path, string section, string key)
@@ -245,6 +273,7 @@ internal sealed class SessionCompanion
 
 internal sealed record WarningMessage(string Message, int Seconds);
 internal sealed record ClientResponse(string Id);
+internal sealed record SyncPollResult(SyncConfig Config, bool Modified);
 internal sealed record SyncConfig(
     string ClientId,
     int SyncIntervalSeconds,

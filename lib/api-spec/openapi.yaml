@@ -149,6 +149,17 @@ paths:
                 $ref: "#/components/schemas/SoftwarePolicy"
         "404":
           description: Software policy not found
+    delete:
+      operationId: deleteSoftware
+      tags: [software]
+      summary: Delete a software policy
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Software policy deleted
+        "404":
+          description: Software policy not found
   /audit:
     get:
       operationId: listAuditEntries
@@ -451,13 +462,24 @@ paths:
             type: string
         - $ref: "#/components/parameters/ClientApiKey"
         - $ref: "#/components/parameters/ClientHostname"
+        - $ref: "#/components/parameters/IfNoneMatch"
       responses:
         "200":
           description: Effective synchronization configuration
+          headers:
+            ETag:
+              description: Version of the effective synchronization configuration.
+              schema: { type: string }
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SyncConfig"
+        "304":
+          description: Synchronization configuration has not changed
+          headers:
+            ETag:
+              description: Current version of the effective synchronization configuration.
+              schema: { type: string }
   /sync/enroll:
     post:
       operationId: enrollClient
@@ -522,6 +544,13 @@ components:
       schema:
         type: string
       description: Windows hostname/computer name used as client identity.
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Previously returned synchronization configuration ETag.
   schemas:
     ClientEnrollmentInput:
       type: object
@@ -568,7 +597,7 @@ components:
           format: date-time
     Client:
       type: object
-      required: [id, name, hostname, address, status, lastSync, syncVersion, certificateStatus]
+      required: [id, name, hostname, address, status, lastSync, lastPoll, lastSuccessfulSync, syncVersion, certificateStatus]
       properties:
         id: { type: string }
         name: { type: string }
@@ -578,6 +607,12 @@ components:
           type: string
           enum: [online, stale, revoked]
         lastSync:
+          type: ["string", "null"]
+          format: date-time
+        lastPoll:
+          type: ["string", "null"]
+          format: date-time
+        lastSuccessfulSync:
           type: ["string", "null"]
           format: date-time
         syncVersion: { type: string }
