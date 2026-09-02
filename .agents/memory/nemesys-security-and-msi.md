@@ -3,7 +3,7 @@ name: Nemesys security and MSI
 description: Deployment constraints for encrypted directory/PKI settings and the Windows installer packaging path.
 ---
 
-LDAP bind passwords and PKI private keys are encrypted at rest with a key derived from `SESSION_SECRET`. Changing that secret without re-entering the protected values makes them undecryptable.
+LDAP bind passwords, PKI private keys, and the intentionally recoverable client API key are encrypted at rest with a key derived from `SESSION_SECRET`. Changing that secret without re-entering the protected values makes them undecryptable.
 
 **Why:** The Kubernetes deployment is stateless and PostgreSQL is shared, so protected settings must survive pod replacement without storing plaintext secrets in the database.
 

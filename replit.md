@@ -36,14 +36,14 @@ Windows software update enforcement with a server control center, client sync pr
 - The admin console and future Windows client use the same generated OpenAPI contract.
 - The server is designed to run as a stateless Kubernetes workload with PostgreSQL provided by the existing cluster/database stack; do not introduce a Replit-specific database or deployment dependency.
 - Client sync configuration is separate from the admin surface so the sync port can later be exposed through IIS/firewall policy independently.
-- Clients authenticate with one shared API key, while the server stores only its SHA-256 hash. Client identity is the Windows hostname; individual client certificates are not part of the design.
+- Clients authenticate with one shared API key, while the server stores a SHA-256 authentication hash plus an encrypted recovery copy. Client identity is the Windows hostname; individual client certificates are not part of the design.
 - API-key rotation returns the plaintext key once for silent installation/reconfiguration commands. Windows clients must protect the key with DPAPI; the server hostname may remain plain text in the local client configuration.
 - The effective sync contract includes per-application Update Mode and each policy's close-on-start timeout, so a running Windows client can apply policy changes without service restart.
 - Software policies support both Windows file-version checks and section/key/value checks for legacy INI files.
 - Administrator management routes require a signed HttpOnly session; `/sync/*` uses the shared API key and hostname headers instead.
 - LDAP service-account credentials and PKI private keys are encrypted at rest using a key derived from `SESSION_SECRET`; certificate status is exposed without returning private material.
 - HTTPS activation starts the API with the stored PKI certificate when enabled, redirects proxied HTTP requests, and can emit HSTS after TLS is confirmed.
-- The client API key is hashed server-side; rotation or explicitly saving a chosen key returns clear text only in that intentional response for copying/reconfiguration.
+- The client API key is hashed for authentication and encrypted with `SESSION_SECRET` for intentional authenticated-administrator recovery; rotation or saving a chosen key returns clear text only through the explicit key-management flow.
 - The Windows service remains non-interactive; a companion user-session process owns countdown notifications.
 
 ## Product

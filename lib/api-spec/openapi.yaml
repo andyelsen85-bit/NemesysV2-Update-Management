@@ -214,6 +214,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiKeyRotation"
   /settings/api-key:
+    get:
+      operationId: getClientApiKey
+      tags: [settings]
+      summary: Get the configured shared client API key
+      description: Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
+      responses:
+        "200":
+          description: Current client API key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientApiKeyStatus"
     post:
       operationId: saveClientApiKey
       tags: [settings]
@@ -702,6 +714,15 @@ components:
         rotatedAt:
           type: string
           format: date-time
+    ClientApiKeyStatus:
+      type: object
+      required: [apiKey, maskedApiKey, configured, recoverable, rotatedAt]
+      properties:
+        apiKey: { type: ["string", "null"] }
+        maskedApiKey: { type: ["string", "null"] }
+        configured: { type: boolean }
+        recoverable: { type: boolean }
+        rotatedAt: { type: ["string", "null"], format: date-time }
     ApiKeyInput:
       type: object
       required: [apiKey]

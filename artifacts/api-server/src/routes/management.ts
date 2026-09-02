@@ -9,6 +9,7 @@ import {
   softwarePoliciesTable,
 } from "@workspace/db";
 import type { SoftwarePolicy as DbSoftwarePolicy } from "@workspace/db";
+import { decryptSecret, encryptSecret } from "../lib/secret-crypto";
 import { requireAdmin } from "./auth";
 import {
   CreateSoftwareBody,
@@ -24,6 +25,7 @@ import {
   RevokeClientParams,
   RevokeClientResponse,
   RotateClientApiKeyResponse,
+  GetClientApiKeyResponse,
   SubmitSyncReportBody,
   SubmitSyncReportResponse,
   UpdateServerSettingsBody,
@@ -294,6 +296,7 @@ router.post("/settings/api-key/rotate", requireAdmin, async (_req, res): Promise
     .update(serverSettingsTable)
     .set({
       clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+      clientApiKeyEncrypted: encryptSecret(apiKey),
       apiKeyLastRotatedAt: rotatedAt,
     })
     .where(eq(serverSettingsTable.id, "default"))
@@ -319,6 +322,7 @@ router.post("/settings/api-key", requireAdmin, async (req, res): Promise<void> =
   const [settings] = await db.update(serverSettingsTable)
     .set({
       clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+      clientApiKeyEncrypted: encryptSecret(apiKey),
       apiKeyLastRotatedAt: rotatedAt,
     })
     .where(eq(serverSettingsTable.id, "default"))
@@ -331,6 +335,22 @@ router.post("/settings/api-key", requireAdmin, async (req, res): Promise<void> =
     apiKey,
     maskedApiKey: `${apiKey.slice(0, 6)}••••••••${apiKey.slice(-4)}`,
     rotatedAt,
+  }));
+});
+
+router.get("/settings/api-key", requireAdmin, async (_req, res): Promise<void> => {
+  const settings = await getDefaultSettings();
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  const apiKey = decryptSecret(settings.clientApiKeyEncrypted);
+  res.json(GetClientApiKeyResponse.parse({
+    apiKey,
+    maskedApiKey: apiKey ? `${apiKey.slice(0, 11)}••••••••${apiKey.slice(-4)}` : null,
+    configured: Boolean(settings.clientApiKeyHash),
+    recoverable: Boolean(apiKey),
+    rotatedAt: settings.apiKeyLastRotatedAt,
   }));
 });
 

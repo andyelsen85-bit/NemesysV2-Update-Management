@@ -31,7 +31,7 @@ spec:
           # GitHub Actions publishes this image to GHCR on every main push.
           # Replace the owner if this repository is forked.
           image: ghcr.io/andyelsen85-bit/nemesys-api-server:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
@@ -81,7 +81,7 @@ spec:
         - name: console
           # GitHub Actions publishes this image to GHCR on every main push.
           image: ghcr.io/andyelsen85-bit/nemesys-console:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080

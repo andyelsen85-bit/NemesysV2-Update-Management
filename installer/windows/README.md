@@ -6,6 +6,11 @@ by the EXE, which encrypts the shared API key with machine-scoped Windows DPAPI,
 writes the clear-text server endpoint, registers the LocalSystem service, and
 registers the user-session countdown companion.
 
+The GitHub Actions workflow at `.github/workflows/build-msi.yml` builds this
+project on `windows-latest`, uploads the MSI as an Actions artifact, and
+attaches it to `v*` GitHub releases. No MSI compilation is required in the
+Linux development workspace.
+
 Build on a Windows runner with the .NET 8 SDK:
 
 ```powershell

@@ -10,12 +10,12 @@ import {
 import {
   getGetClientSyncConfigQueryKey, getGetDashboardQueryKey, getGetServerSettingsQueryKey,
   getListAuditEntriesQueryKey, getListClientsQueryKey,
-  getListSoftwareQueryKey, useCreateSoftware, useGetDashboard, useGetServerSettings,
+  getListSoftwareQueryKey, useCreateSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
   useGetClientSyncConfig, useHealthCheck, useListAuditEntries, useListClients, useListSoftware,
   useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware
 } from '@workspace/api-client-react';
 import type {
-  AdministratorUser, ApiKeyRotation, AuditEntry, Client, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
+  AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
   SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -504,10 +504,12 @@ function SecurityPage() {
 
 function ApiKeyPage() {
   const settings = useGetServerSettings();
+  const current = useGetClientApiKey();
   const rotate = useRotateClientApiKey();
   const [customKey, setCustomKey] = useState('');
   const [result, setResult] = useState<ApiKeyRotation | null>(null);
   const [feedback, setFeedback] = useState('');
+  const configuredKey = current.data as ClientApiKeyStatus | undefined;
   const saveCustom = async (event: FormEvent) => {
     event.preventDefault();
     setFeedback('');
@@ -517,12 +519,13 @@ function ApiKeyPage() {
       if (!response.ok) throw new Error(body.error ?? 'Unable to save API key.');
       setResult(body as ApiKeyRotation);
       setCustomKey('');
-      setFeedback('The saved key is shown below. Copy it now; the server retains only its hash.');
+      setFeedback('The saved key is shown below and will remain available to authenticated administrators.');
       queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: ['/api/settings/api-key'] });
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save API key.'); }
   };
-  const generate = () => rotate.mutate(undefined, { onSuccess: (body) => { setResult(body); setFeedback('A new key was generated intentionally. Copy it now for client reconfiguration.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); } });
-  return <div className="mx-auto max-w-[900px]"><PageHeader eyebrow="Client transport" title="Client API key" detail="Manage the shared key used by Windows services. Existing clients continue working until you intentionally replace the key." /><div className="grid gap-6 md:grid-cols-2"><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Current key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">{settings.data?.apiKeyConfigured ? `Configured · last changed ${formatTime(settings.data.apiKeyLastRotatedAt)}` : 'No shared key has been configured.'}</p></div></div><Button type="button" onClick={generate} disabled={rotate.isPending}><RotateCcw size={14} />{rotate.isPending ? 'Generating…' : 'Generate new key'}</Button><p className="mt-3 text-[11px] leading-5 text-[#71817c]">This action replaces the hash immediately, so older clients must be reconfigured with the returned key.</p></section><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><h2 className="text-sm font-extrabold text-[#284139]">Save an existing/custom key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">Use this when you want to preserve a chosen key during migration or explicitly re-enter one.</p><form onSubmit={saveCustom} className="mt-4 space-y-3"><input required minLength={16} maxLength={256} type="password" value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="At least 16 characters" className="field-input font-mono" /><Button type="submit" variant="secondary">Save chosen key</Button></form></section></div>{result && <section className="mt-6 rounded-xl border border-[#e4c6b6] bg-[#fff5ee] p-5"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">Full key — copy now</div><code data-testid="text-full-api-key" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-3 font-mono text-xs text-[#586c6d]">{result.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(result.apiKey); }}>Copy key</Button></section>}{feedback && <div role="status" className="mt-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}</div>;
+  const generate = () => rotate.mutate(undefined, { onSuccess: (body) => { setResult(body); setFeedback('A new key was generated intentionally. Copy it now for client reconfiguration.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); queryClient.invalidateQueries({ queryKey: ['/api/settings/api-key'] }); } });
+  return <div className="mx-auto max-w-[900px]"><PageHeader eyebrow="Client transport" title="Client API key" detail="Manage the shared key used by Windows services. Existing clients continue working until you intentionally replace the key." /><div className="grid gap-6 md:grid-cols-2"><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Current key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">{settings.data?.apiKeyConfigured ? `Configured · last changed ${formatTime(settings.data.apiKeyLastRotatedAt)}` : 'No shared key has been configured.'}</p></div></div>{configuredKey?.apiKey ? <div className="rounded-lg border border-[#b9d8c5] bg-[#f1faf3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#317357]">Configured key</div><code data-testid="text-configured-api-key" className="mt-2 block break-all font-mono text-xs text-[#284139]">{configuredKey.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(configuredKey.apiKey ?? ''); }}>Copy configured key</Button></div> : configuredKey?.configured ? <div className="rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3 text-xs leading-5 text-[#8f5d4e]">This key was saved before encrypted key recovery was enabled. It cannot be read back from its hash. Use “Save chosen key” to preserve the key you already have, or generate a replacement.</div> : null}<Button type="button" className="mt-4" onClick={generate} disabled={rotate.isPending}><RotateCcw size={14} />{rotate.isPending ? 'Generating…' : 'Generate new key'}</Button><p className="mt-3 text-[11px] leading-5 text-[#71817c]">Generating or saving a key replaces the current key immediately, so older clients must be reconfigured with the returned value.</p></section><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><h2 className="text-sm font-extrabold text-[#284139]">Save an existing/custom key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">Use this to preserve a chosen key during migration. It will be encrypted for future display while the server continues authenticating with its hash.</p><form onSubmit={saveCustom} className="mt-4 space-y-3"><input required minLength={16} maxLength={256} type="password" value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="At least 16 characters" className="field-input font-mono" /><Button type="submit" variant="secondary">Save chosen key</Button></form></section></div>{result && <section className="mt-6 rounded-xl border border-[#e4c6b6] bg-[#fff5ee] p-5"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">Full key — copy now</div><code data-testid="text-full-api-key" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-3 font-mono text-xs text-[#586c6d]">{result.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(result.apiKey); }}>Copy key</Button></section>}{feedback && <div role="status" className="mt-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}</div>;
 }
 
 function SettingsPage() {

@@ -1,0 +1,50 @@
+name: Build Windows MSI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-msi:
+    name: Build NemesysV2 Client MSI
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.x"
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") {
+            "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            "0.0.${{ github.run_number }}"
+          }
+          ./installer/windows/build-msi.ps1 -Configuration Release -Version $version
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NemesysV2-Client-MSI-${{ github.sha }}
+          path: installer/windows/bin/**/*.msi
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach MSI to GitHub release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/windows/bin/**/*.msi

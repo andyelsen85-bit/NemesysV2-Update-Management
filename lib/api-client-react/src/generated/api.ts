@@ -30,6 +30,7 @@ import type {
   AuthPasswordChangeInput,
   AuthSession,
   Client,
+  ClientApiKeyStatus,
   ClientEnrollmentInput,
   DashboardSummary,
   GetSyncConfigParams,
@@ -979,6 +980,84 @@ export const useRotateClientApiKey = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getRotateClientApiKeyMutationOptions(options));
     }
+
+export const getGetClientApiKeyUrl = () => {
+
+
+
+
+  return `/api/settings/api-key`
+}
+
+/**
+ * Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
+ * @summary Get the configured shared client API key
+ */
+export const getClientApiKey = async ( options?: Parameters<typeof customFetch>[1]): Promise<ClientApiKeyStatus> => {
+
+  return customFetch<ClientApiKeyStatus>(getGetClientApiKeyUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetClientApiKeyQueryKey = () => {
+    return [
+    `/api/settings/api-key`
+    ] as const;
+    }
+
+
+export const getGetClientApiKeyQueryOptions = <TData = Awaited<ReturnType<typeof getClientApiKey>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClientApiKey>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetClientApiKeyQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getClientApiKey>>> = ({ signal }) => getClientApiKey({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getClientApiKey>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetClientApiKeyQueryResult = NonNullable<Awaited<ReturnType<typeof getClientApiKey>>>
+export type GetClientApiKeyQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the configured shared client API key
+ */
+
+export function useGetClientApiKey<TData = Awaited<ReturnType<typeof getClientApiKey>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClientApiKey>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetClientApiKeyQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getSaveClientApiKeyUrl = () => {
 

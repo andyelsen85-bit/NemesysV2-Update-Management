@@ -432,6 +432,19 @@ export const RotateClientApiKeyResponse = zod.object({
 
 
 /**
+ * Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
+ * @summary Get the configured shared client API key
+ */
+export const GetClientApiKeyResponse = zod.object({
+  "apiKey": zod.string().nullable(),
+  "maskedApiKey": zod.string().nullable(),
+  "configured": zod.boolean(),
+  "recoverable": zod.boolean(),
+  "rotatedAt": zod.coerce.date().nullable()
+})
+
+
+/**
  * Explicitly saves a supplied key and returns it in full so an administrator can copy it without reinstalling existing clients.
  * @summary Save a chosen shared client API key
  */

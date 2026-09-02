@@ -52,6 +52,7 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   adminUsername: text("admin_username").notNull().default("admin"),
   adminPasswordHash: text("admin_password_hash"),
   clientApiKeyHash: text("client_api_key_hash"),
+  clientApiKeyEncrypted: text("client_api_key_encrypted"),
   apiKeyLastRotatedAt: timestamp("api_key_last_rotated_at", { withTimezone: true }),
   updateMode: boolean("update_mode").notNull().default(false),
   normalCloseTimeoutSeconds: integer("normal_close_timeout_seconds").notNull().default(30),

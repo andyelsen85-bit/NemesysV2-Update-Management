@@ -13,6 +13,17 @@ GitHub Actions to GitHub Container Registry (GHCR). Before applying it:
 4. Replace the example `stringData` values using the cluster’s secret-management workflow.
 5. Point `DATABASE_URL` at the existing PostgreSQL service.
 6. Replace the example hostname and select the cluster’s ingress/TLS annotations.
+7. Apply the additive Drizzle schema update to the existing PostgreSQL database
+   before rolling out the new API image:
+
+```bash
+DATABASE_URL='postgresql://...' pnpm --filter @workspace/db run push
+```
+
+This creates the Nemesys administrator, LDAP, SSL, per-application policy, and
+encrypted client-key columns/tables without deleting existing data. Use the
+cluster’s secret-management process rather than committing the connection
+string to a shell history or repository.
 
 The Ingress sends `/api/*` to the API and all other paths to the console. The
 API deployment is replica-safe because runtime state is held in PostgreSQL and

@@ -20,6 +20,7 @@ export * from './authPasswordChangeInput';
 export * from './authSession';
 export * from './client';
 export * from './clientApiKeyParameter';
+export * from './clientApiKeyStatus';
 export * from './clientCertificateStatus';
 export * from './clientEnrollmentInput';
 export * from './clientHostnameParameter';
