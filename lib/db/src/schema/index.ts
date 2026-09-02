@@ -46,7 +46,9 @@ export const auditEntriesTable = pgTable("nemesys_audit_entries", {
     expectedVersion: string;
     compliant: boolean;
   }>>().notNull().default([]),
-});
+}, (table) => ({
+  clientIdUnique: unique("nemesys_audit_entries_client_id_unique").on(table.clientId),
+}));
 
 export const serverSettingsTable = pgTable("nemesys_server_settings", {
   id: text("id").primaryKey(),

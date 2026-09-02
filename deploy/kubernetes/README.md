@@ -61,6 +61,13 @@ poll-timestamp and policy-postpone columns before seed data is inserted. No
 manual schema command is required. The database user in `DATABASE_URL` must
 have permission to create tables and alter tables.
 
+Before deploying the release that introduces one latest audit row per client,
+run `migrations/003-latest-audit-per-client.sql` once against an existing
+database. The migration deterministically keeps the newest row for each client,
+removes older audit rows, and adds the unique client constraint. Take the normal
+database backup first, then use the cluster's secret-managed connection rather
+than putting credentials in the command or repository.
+
 For a database reachable from a trusted administration environment, the full
 Drizzle schema push remains an optional alternative provisioning method:
 

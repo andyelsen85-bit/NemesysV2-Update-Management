@@ -20,7 +20,8 @@ const schemaStatements = [
     client_name text NOT NULL,
     timestamp timestamp with time zone DEFAULT now() NOT NULL,
     result text NOT NULL,
-    applications jsonb DEFAULT '[]'::jsonb NOT NULL
+    applications jsonb DEFAULT '[]'::jsonb NOT NULL,
+    CONSTRAINT nemesys_audit_entries_client_id_unique UNIQUE (client_id)
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_clients (
     id text PRIMARY KEY NOT NULL,

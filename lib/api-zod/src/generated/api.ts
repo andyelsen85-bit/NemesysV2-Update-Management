@@ -339,7 +339,7 @@ export const DeleteSoftwareResponse = zod.void()
 
 
 /**
- * @summary List recent synchronization audit entries
+ * @summary List the latest synchronization status for each client
  */
 export const listAuditEntriesQueryLimitDefault = 50;
 export const listAuditEntriesQueryLimitMax = 100;

@@ -1,6 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, count, desc, eq, gte, max, ne } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, max, ne, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   auditEntriesTable,
@@ -105,7 +105,7 @@ router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
   const [clientCount] = await db.select({ value: count() }).from(clientsTable);
   const [onlineCount] = await db.select({ value: count() }).from(clientsTable).where(eq(clientsTable.status, "online"));
   const [softwareCount] = await db.select({ value: count() }).from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
-  const [todayCount] = await db.select({ value: count() }).from(auditEntriesTable).where(gte(auditEntriesTable.timestamp, new Date(new Date().setHours(0, 0, 0, 0))));
+  const [todayCount] = await db.select({ value: countDistinct(auditEntriesTable.clientId) }).from(auditEntriesTable).where(gte(auditEntriesTable.timestamp, new Date(new Date().setHours(0, 0, 0, 0))));
   const [latest] = await db.select({ timestamp: auditEntriesTable.timestamp }).from(auditEntriesTable).orderBy(desc(auditEntriesTable.timestamp)).limit(1);
 
   res.json(GetDashboardResponse.parse({
@@ -332,8 +332,12 @@ router.get("/audit", requireAdmin, async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const entries = await db.select().from(auditEntriesTable).orderBy(desc(auditEntriesTable.timestamp)).limit(parsed.data.limit ?? 50);
-  res.json(ListAuditEntriesResponse.parse(entries));
+  const entries = await db
+    .selectDistinctOn([auditEntriesTable.clientId])
+    .from(auditEntriesTable)
+    .orderBy(auditEntriesTable.clientId, desc(auditEntriesTable.timestamp), desc(auditEntriesTable.id));
+  entries.sort((left, right) => right.timestamp.getTime() - left.timestamp.getTime());
+  res.json(ListAuditEntriesResponse.parse(entries.slice(0, parsed.data.limit ?? 50)));
 });
 
 router.get("/settings", requireAdmin, async (_req, res): Promise<void> => {
@@ -510,25 +514,36 @@ router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void>
     return;
   }
   if (!await requireHostnameForClient(parsed.data.clientId, req, res)) return;
-  const now = new Date();
-  const [updatedClient] = await db.update(clientsTable)
-    .set({ lastSync: now, status: "online" })
-    .where(and(
-      eq(clientsTable.id, parsed.data.clientId),
-      ne(clientsTable.status, "revoked"),
-      ne(clientsTable.certificateStatus, "revoked"),
-    ))
-    .returning({ id: clientsTable.id });
-  if (!updatedClient) {
+  const entry = await db.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtext(${parsed.data.clientId}))`,
+    );
+    const reportTimestamp = new Date();
+    const [updatedClient] = await transaction.update(clientsTable)
+      .set({ lastSync: reportTimestamp, status: "online" })
+      .where(and(
+        eq(clientsTable.id, parsed.data.clientId),
+        ne(clientsTable.status, "revoked"),
+        ne(clientsTable.certificateStatus, "revoked"),
+      ))
+      .returning({ id: clientsTable.id });
+    if (!updatedClient) return null;
+
+    await transaction
+      .delete(auditEntriesTable)
+      .where(eq(auditEntriesTable.clientId, parsed.data.clientId));
+    const [latestEntry] = await transaction.insert(auditEntriesTable).values({
+      id: `audit-${crypto.randomUUID()}`,
+      ...parsed.data,
+      timestamp: reportTimestamp,
+    }).returning();
+    return latestEntry;
+  });
+  if (!entry) {
     res.status(403).json({ error: "Client access is revoked" });
     return;
   }
-  const [entry] = await db.insert(auditEntriesTable).values({
-    id: `audit-${crypto.randomUUID()}`,
-    ...parsed.data,
-    timestamp: now,
-  }).returning();
-  res.status(201).json(SubmitSyncReportResponse.parse(entry));
+  res.json(SubmitSyncReportResponse.parse(entry));
 });
 
 export default router;

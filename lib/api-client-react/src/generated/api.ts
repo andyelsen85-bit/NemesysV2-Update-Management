@@ -764,7 +764,7 @@ export const getListAuditEntriesUrl = (params?: ListAuditEntriesParams,) => {
 }
 
 /**
- * @summary List recent synchronization audit entries
+ * @summary List the latest synchronization status for each client
  */
 export const listAuditEntries = async (params?: ListAuditEntriesParams, options?: Parameters<typeof customFetch>[1]): Promise<AuditEntry[]> => {
 
@@ -811,7 +811,7 @@ export type ListAuditEntriesQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List recent synchronization audit entries
+ * @summary List the latest synchronization status for each client
  */
 
 export function useListAuditEntries<TData = Awaited<ReturnType<typeof listAuditEntries>>, TError = ErrorType<unknown>>(

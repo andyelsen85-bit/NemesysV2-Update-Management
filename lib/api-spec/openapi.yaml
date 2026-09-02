@@ -17,7 +17,7 @@ tags:
   - name: software
     description: Software update policies
   - name: audit
-    description: Synchronization audit history
+    description: Latest synchronization status per client
   - name: settings
     description: Server configuration
   - name: users
@@ -164,7 +164,7 @@ paths:
     get:
       operationId: listAuditEntries
       tags: [audit]
-      summary: List recent synchronization audit entries
+      summary: List the latest synchronization status for each client
       parameters:
         - name: limit
           in: query
@@ -516,8 +516,8 @@ paths:
             schema:
               $ref: "#/components/schemas/SyncReportInput"
       responses:
-        "201":
-          description: Report accepted
+        "200":
+          description: Latest report for the client accepted and stored
           content:
             application/json:
               schema:
