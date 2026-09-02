@@ -104,7 +104,11 @@ internal sealed class ClientConfiguration
         var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Installer executable path is unavailable.");
         Run("sc.exe", $"create NemesysV2Client binPath= \"{executable}\" start= auto obj= LocalSystem");
         Run("sc.exe", "description NemesysV2Client \"NemesysV2 Windows software update client\"");
-        Run("schtasks.exe", $"/Create /TN \"NemesysV2 User Session\" /SC ONLOGON /TR \"\\\"{executable}\\\" --session-companion\" /RL LIMITED /F");
+        // Older builds used a LocalSystem ONLOGON task for the interactive
+        // companion. Services cannot display on the user's desktop, and a task
+        // created by LocalSystem does not solve that problem. Warnings now
+        // launch a short-lived companion in the active user's session.
+        Run("schtasks.exe", "/Delete /TN \"NemesysV2 User Session\" /F", throwOnError: false);
         Run("sc.exe", "start NemesysV2Client");
     }
 
@@ -114,7 +118,7 @@ internal sealed class ClientConfiguration
         return index >= 0 && index + 1 < args.Length ? args[index + 1].Trim('"') : "";
     }
 
-    private static void Run(string fileName, string arguments)
+    private static void Run(string fileName, string arguments, bool throwOnError = true)
     {
         using var process = Process.Start(new ProcessStartInfo(fileName, arguments)
         {
@@ -122,7 +126,7 @@ internal sealed class ClientConfiguration
             CreateNoWindow = true,
         }) ?? throw new InvalidOperationException($"Unable to start {fileName}.");
         process.WaitForExit();
-        if (process.ExitCode != 0)
+        if (throwOnError && process.ExitCode != 0)
             throw new InvalidOperationException($"{fileName} failed with exit code {process.ExitCode}.");
     }
 }

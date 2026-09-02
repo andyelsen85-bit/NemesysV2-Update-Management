@@ -2,9 +2,12 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -72,7 +75,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     private async Task<string> EnrollAsync(CancellationToken cancellationToken)
     {
         using var request = CreateRequest(HttpMethod.Post, "/sync/enroll");
-        request.Content = JsonContent.Create(new { address = ResolveAddress() }, options: JsonOptions.Default);
+        request.Content = JsonContent.Create(
+            new { address = await ResolveAddressAsync(configuration.Server, configuration.Port) },
+            options: JsonOptions.Default);
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
         var client = await response.Content.ReadFromJsonAsync<ClientResponse>(JsonOptions.Default, cancellationToken)
@@ -106,6 +111,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     {
         var results = sync.Policies.Select(policy => (Policy: policy, Result: EvaluatePolicy(policy))).ToList();
         var nonCompliantPolicies = results.Where(item => !item.Result.Compliant).ToList();
+        logger.LogInformation(
+            "Evaluated {PolicyCount} policies for {Hostname}; {NonCompliantCount} require attention",
+            results.Count, configuration.Hostname, nonCompliantPolicies.Count);
         if (nonCompliantPolicies.Count > 0)
         {
             foreach (var item in nonCompliantPolicies)
@@ -113,14 +121,25 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 var timeout = item.Policy.UpdateMode
                     ? Math.Max(1, item.Policy.UpdateModeCloseTimeoutSeconds)
                     : Math.Max(5, sync.NormalCloseTimeoutSeconds);
-                var postponed = await SessionWarningChannel.ShowAsync(
+                var outcome = await SessionWarningChannel.ShowAsync(
                     item.Policy.Name,
                     timeout,
                     item.Policy.AllowPostpone,
+                    logger,
                     cancellationToken);
-                if (postponed)
+                if (outcome == WarningOutcome.Postpone)
                 {
                     logger.LogInformation("User postponed the controlled update for {ApplicationName}", item.Policy.Name);
+                    syncEtag = null;
+                    continue;
+                }
+                if (outcome == WarningOutcome.CompanionUnavailable)
+                {
+                    logger.LogWarning(
+                        "Warning companion unavailable for {ApplicationName}; skipping process closure and installation",
+                        item.Policy.Name);
+                    // Request a fresh configuration next time: otherwise a
+                    // cached 304 response would prevent another warning attempt.
                     syncEtag = null;
                     continue;
                 }
@@ -139,25 +158,46 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         }, options: JsonOptions.Default);
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
+        logger.LogInformation(
+            "Reported evaluation for {Hostname}: {Result} ({ApplicationCount} applications)",
+            configuration.Hostname, nonCompliantPolicies.Count > 0 ? "warning" : "success", results.Count);
     }
 
     private ApplicationResult EvaluatePolicy(SoftwarePolicy policy)
     {
-        var exeResults = policy.ExeChecks.Select(check =>
+        var checks = new List<PolicyCheckAudit>();
+        foreach (var check in policy.ExeChecks)
         {
-            var observed = File.Exists(check.Executable)
-                ? FileVersionInfo.GetVersionInfo(check.Executable).FileVersion ?? ""
-                : "";
-            return (Observed: observed, Expected: check.TargetVersion, Compliant: observed == check.TargetVersion);
-        });
-        var iniResults = policy.IniChecks.Select(check =>
+            var observed = ReadFileVersion(check.Executable);
+            checks.Add(new PolicyCheckAudit(
+                $"EXE [{check.Executable}]",
+                DescribeObservedVersion(check.Executable, observed),
+                DescribeExpected(check.TargetVersion, "version"),
+                IsConfiguredMatch(observed.Raw, check.TargetVersion)));
+        }
+        foreach (var check in policy.IniChecks)
         {
             var observed = ReadIniValue(check.FilePath, check.Section, check.Key);
-            return (Observed: observed, Expected: check.ExpectedValue, Compliant: observed == check.ExpectedValue);
-        });
-        var checks = exeResults.Concat(iniResults).ToList();
-        var first = checks.FirstOrDefault();
-        return new ApplicationResult(policy.Id, policy.Name, checks.Count == 0 || checks.All(value => value.Compliant), first.Observed ?? "", first.Expected ?? "");
+            checks.Add(new PolicyCheckAudit(
+                $"INI [{check.FilePath}] [{check.Section}] {check.Key}",
+                DescribeObservedIni(check.FilePath, observed),
+                DescribeExpected(check.ExpectedValue, "value"),
+                IsConfiguredMatch(observed.Raw, check.ExpectedValue)));
+        }
+
+        if (checks.Count == 0)
+        {
+            return new ApplicationResult(
+                policy.Id, policy.Name, true,
+                "no checks configured", "no checks configured");
+        }
+
+        return new ApplicationResult(
+            policy.Id,
+            policy.Name,
+            checks.Count == 0 || checks.All(check => check.Compliant),
+            string.Join("; ", checks.Select(check => $"{check.Label}: {check.Observed}")),
+            string.Join("; ", checks.Select(check => $"{check.Label}: {check.Expected}")));
     }
 
     private void CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
@@ -171,7 +211,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         {
             foreach (var process in Process.GetProcessesByName(processName))
             {
-                try { process.Kill(entireProcessTree: true); }
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                    logger.LogInformation("Closed {ProcessName} (PID {ProcessId})", processName, process.Id);
+                }
                 catch (Exception exception) { logger.LogWarning(exception, "Unable to close {ProcessName}", processName); }
                 finally { process.Dispose(); }
             }
@@ -220,11 +264,92 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return TimeSpan.FromSeconds(Math.Max(10, jittered));
     }
 
-    private static string ResolveAddress() => "windows-client";
+    private static bool IsConfiguredMatch(string observed, string expected) =>
+        !string.IsNullOrWhiteSpace(observed) &&
+        !string.IsNullOrWhiteSpace(expected) &&
+        observed == expected;
 
-    private static string ReadIniValue(string path, string section, string key)
+    private static async Task<string> ResolveAddressAsync(string server, int port)
     {
-        if (!File.Exists(path)) return "";
+        try
+        {
+            if (Uri.TryCreate(server, UriKind.Absolute, out var uri))
+            {
+                var remoteAddress = (await Dns.GetHostAddressesAsync(uri.Host))
+                    .FirstOrDefault(address => address.AddressFamily == AddressFamily.InterNetwork);
+                if (remoteAddress is not null)
+                {
+                    using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    await socket.ConnectAsync(new IPEndPoint(remoteAddress, port));
+                    if (socket.LocalEndPoint is IPEndPoint localEndpoint && IsUsableIpv4(localEndpoint.Address))
+                        return localEndpoint.Address.ToString();
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // DNS/socket routing is only an informational enhancement. Fall
+            // back to adapter inspection if it is unavailable.
+        }
+        return ResolveInterfaceAddress();
+    }
+
+    private static string ResolveInterfaceAddress()
+    {
+        var candidates = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(adapter => adapter.OperationalStatus == OperationalStatus.Up &&
+                adapter.NetworkInterfaceType is not NetworkInterfaceType.Loopback and not NetworkInterfaceType.Tunnel)
+            .Select(adapter => adapter.GetIPProperties())
+            .Select(properties => new
+            {
+                HasDefaultGateway = properties.GatewayAddresses.Any(gateway =>
+                    gateway.Address.AddressFamily == AddressFamily.InterNetwork &&
+                    !gateway.Address.Equals(IPAddress.Any)),
+                Addresses = properties.UnicastAddresses
+                    .Select(address => address.Address)
+                    .Where(IsUsableIpv4),
+            })
+            .ToList();
+        return candidates.Where(candidate => candidate.HasDefaultGateway)
+            .SelectMany(candidate => candidate.Addresses)
+            .Concat(candidates.SelectMany(candidate => candidate.Addresses))
+            .Select(address => address.ToString())
+            .FirstOrDefault() ?? "unknown";
+    }
+
+    private static bool IsUsableIpv4(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback(address))
+            return false;
+        var bytes = address.GetAddressBytes();
+        return !(bytes[0] == 169 && bytes[1] == 254); // APIPA
+    }
+
+    private static RawCheckValue ReadFileVersion(string path)
+    {
+        if (!File.Exists(path)) return new("", "file not found");
+        try
+        {
+            var version = FileVersionInfo.GetVersionInfo(path).FileVersion;
+            return string.IsNullOrWhiteSpace(version)
+                ? new("", "version unavailable")
+                : new(version, version);
+        }
+        catch (Exception)
+        {
+            return new("", "version unavailable");
+        }
+    }
+
+    private static string DescribeObservedVersion(string path, RawCheckValue observed) => observed.Display;
+    private static string DescribeObservedIni(string path, RawCheckValue observed) =>
+        File.Exists(path) ? observed.Display : "file not found";
+    private static string DescribeExpected(string value, string kind) =>
+        string.IsNullOrWhiteSpace(value) ? $"expected {kind} not configured" : value;
+
+    private static RawCheckValue ReadIniValue(string path, string section, string key)
+    {
+        if (!File.Exists(path)) return new("", "file not found");
         var currentSection = "";
         foreach (var line in File.ReadLines(path))
         {
@@ -237,24 +362,41 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             var separator = value.IndexOf('=');
             if (separator <= 0 || !currentSection.Equals(section, StringComparison.OrdinalIgnoreCase)) continue;
             if (value[..separator].Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
-                return value[(separator + 1)..].Trim();
+            {
+                var raw = value[(separator + 1)..].Trim();
+                return string.IsNullOrWhiteSpace(raw)
+                    ? new(raw, "value unavailable")
+                    : new(raw, raw);
+            }
         }
-        return "";
+        return new("", "value not found");
     }
 }
 
 internal static class SessionWarningChannel
 {
-    public static async Task<bool> ShowAsync(string applicationName, int seconds, bool allowPostpone, CancellationToken cancellationToken)
+    public static async Task<WarningOutcome> ShowAsync(
+        string applicationName, int seconds, bool allowPostpone, ILogger logger, CancellationToken cancellationToken)
     {
-        var startedAt = Stopwatch.GetTimestamp();
         using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         exchangeCancellation.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, seconds) + 5));
         try
         {
             await using var pipe = CreateServer();
+            var sessionId = SessionCompanionLauncher.GetActiveSessionId(logger);
+            if (sessionId is null)
+            {
+                logger.LogWarning("Warning requested for {ApplicationName}, but no active user session exists", applicationName);
+                return WarningOutcome.CompanionUnavailable;
+            }
+
+            logger.LogInformation("Warning requested for {ApplicationName} in session {SessionId}", applicationName, sessionId);
+            if (!SessionCompanionLauncher.IsCompanionRunning(sessionId.Value) &&
+                !SessionCompanionLauncher.Launch(sessionId.Value, logger))
+                return WarningOutcome.CompanionUnavailable;
+
             using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(exchangeCancellation.Token);
-            connectionCancellation.CancelAfter(TimeSpan.FromSeconds(1));
+            connectionCancellation.CancelAfter(TimeSpan.FromSeconds(5));
             await pipe.WaitForConnectionAsync(connectionCancellation.Token);
             var isAuthenticatedUser = false;
             pipe.RunAsClient(() =>
@@ -263,32 +405,22 @@ internal static class SessionWarningChannel
                 isAuthenticatedUser = identity.IsAuthenticated && identity.User is not null &&
                     !identity.User.IsWellKnown(WellKnownSidType.AnonymousSid);
             });
-            if (!isAuthenticatedUser || !IsExpectedSessionCompanion(pipe))
+            if (!isAuthenticatedUser || !IsExpectedSessionCompanion(pipe, sessionId.Value))
                 throw new UnauthorizedAccessException("The pipe client is not the installed NemesysV2 session companion.");
+            logger.LogInformation("Warning companion connected and authenticated for {ApplicationName}", applicationName);
             await JsonSerializer.SerializeAsync(pipe, new WarningMessage(applicationName, seconds, allowPostpone), JsonOptions.Default, exchangeCancellation.Token);
             await pipe.FlushAsync(exchangeCancellation.Token);
             var response = await JsonSerializer.DeserializeAsync<WarningResponse>(pipe, JsonOptions.Default, exchangeCancellation.Token);
-            return allowPostpone && response?.Postponed == true;
+            if (response is null) throw new IOException("Warning companion closed without a response.");
+            var outcome = allowPostpone && response.Postponed ? WarningOutcome.Postpone : WarningOutcome.Proceed;
+            logger.LogInformation("Warning outcome for {ApplicationName}: {Outcome}", applicationName, outcome);
+            return outcome;
         }
-        catch (TimeoutException)
+        catch (Exception exception) when (exception is TimeoutException or IOException or UnauthorizedAccessException ||
+            (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested))
         {
-            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
-            return false;
-        }
-        catch (IOException)
-        {
-            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
-            return false;
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
-            return false;
+            logger.LogWarning(exception, "Warning companion unavailable for {ApplicationName}", applicationName);
+            return WarningOutcome.CompanionUnavailable;
         }
     }
 
@@ -314,7 +446,7 @@ internal static class SessionWarningChannel
             security);
     }
 
-    private static bool IsExpectedSessionCompanion(NamedPipeServerStream pipe)
+    private static bool IsExpectedSessionCompanion(NamedPipeServerStream pipe, int expectedSessionId)
     {
         if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out var processId) ||
             processId > int.MaxValue)
@@ -325,7 +457,7 @@ internal static class SessionWarningChannel
             using var process = Process.GetProcessById((int)processId);
             var expectedPath = Environment.ProcessPath;
             var actualPath = process.MainModule?.FileName;
-            return process.SessionId != 0 &&
+            return process.SessionId == expectedSessionId &&
                 !string.IsNullOrWhiteSpace(expectedPath) &&
                 !string.IsNullOrWhiteSpace(actualPath) &&
                 Path.GetFullPath(actualPath).Equals(Path.GetFullPath(expectedPath), StringComparison.OrdinalIgnoreCase);
@@ -344,137 +476,224 @@ internal static class SessionWarningChannel
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetNamedPipeClientProcessId(IntPtr pipeHandle, out uint clientProcessId);
 
-    private static async Task WaitForRemainingWarningTimeAsync(long startedAt, int seconds, CancellationToken cancellationToken)
+}
+
+internal enum WarningOutcome { Proceed, Postpone, CompanionUnavailable }
+
+internal static class SessionCompanionLauncher
+{
+    private const uint InvalidSessionId = 0xFFFFFFFF;
+    private const uint TokenAllAccess = 0xF01FF;
+    private const uint CreateUnicodeEnvironment = 0x00000400;
+
+    public static int? GetActiveSessionId(ILogger logger)
     {
-        var remaining = TimeSpan.FromSeconds(Math.Max(1, seconds)) - Stopwatch.GetElapsedTime(startedAt);
-        if (remaining > TimeSpan.Zero)
-            await Task.Delay(remaining, cancellationToken);
+        IntPtr sessionInfo = IntPtr.Zero;
+        try
+        {
+            if (!WTSEnumerateSessions(IntPtr.Zero, 0, 1, out sessionInfo, out var count))
+            {
+                logger.LogWarning("Unable to enumerate active user sessions ({Error})", Marshal.GetLastWin32Error());
+                return null;
+            }
+
+            var recordSize = Marshal.SizeOf<WtsSessionInfo>();
+            var activeSessions = new List<int>();
+            for (var index = 0; index < count; index++)
+            {
+                var item = Marshal.PtrToStructure<WtsSessionInfo>(
+                    IntPtr.Add(sessionInfo, index * recordSize));
+                if (item.State == WtsConnectState.Active && item.SessionId != 0)
+                    activeSessions.Add(item.SessionId);
+            }
+
+            if (activeSessions.Count == 0) return null;
+            var consoleSession = WTSGetActiveConsoleSessionId();
+            if (consoleSession != InvalidSessionId && activeSessions.Contains((int)consoleSession))
+                return (int)consoleSession;
+            return activeSessions.Min();
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Unable to select an active user session for the warning companion");
+            return null;
+        }
+        finally
+        {
+            if (sessionInfo != IntPtr.Zero) WTSFreeMemory(sessionInfo);
+        }
     }
+
+    public static bool IsCompanionRunning(int sessionId)
+    {
+        var expectedPath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(expectedPath)) return false;
+        return Process.GetProcesses().Any(process =>
+        {
+            try
+            {
+                return process.SessionId == sessionId &&
+                    Path.GetFullPath(process.MainModule?.FileName ?? "").Equals(
+                    Path.GetFullPath(expectedPath), StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+            finally { process.Dispose(); }
+        });
+    }
+
+    public static bool Launch(int sessionId, ILogger logger)
+    {
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executable))
+        {
+            logger.LogWarning("Cannot launch warning companion because executable path is unavailable");
+            return false;
+        }
+        if (!WTSQueryUserToken((uint)sessionId, out var userToken))
+        {
+            logger.LogWarning("Unable to obtain active session user token ({Error})", Marshal.GetLastWin32Error());
+            return false;
+        }
+        IntPtr primaryToken = IntPtr.Zero, environment = IntPtr.Zero;
+        try
+        {
+            if (!DuplicateTokenEx(userToken, TokenAllAccess, IntPtr.Zero, 2, 1, out primaryToken))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            if (!CreateEnvironmentBlock(out environment, primaryToken, false))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            var startup = new StartupInfo { cb = Marshal.SizeOf<StartupInfo>(), lpDesktop = @"winsta0\default" };
+            var commandLine = new StringBuilder($"\"{executable}\" --session-companion");
+            if (!CreateProcessAsUser(primaryToken, executable, commandLine, IntPtr.Zero, IntPtr.Zero, false,
+                    CreateUnicodeEnvironment, environment, Path.GetDirectoryName(executable), ref startup, out var process))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+            logger.LogInformation("Launched warning companion in active session {SessionId}", sessionId);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Unable to launch warning companion in active session {SessionId}", sessionId);
+            return false;
+        }
+        finally
+        {
+            if (environment != IntPtr.Zero) DestroyEnvironmentBlock(environment);
+            if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+            CloseHandle(userToken);
+        }
+    }
+
+    [DllImport("kernel32.dll")] private static extern uint WTSGetActiveConsoleSessionId();
+    [DllImport("wtsapi32.dll", SetLastError = true)] private static extern bool WTSEnumerateSessions(
+        IntPtr server, int reserved, int version, out IntPtr sessionInfo, out int count);
+    [DllImport("wtsapi32.dll")] private static extern void WTSFreeMemory(IntPtr memory);
+    [DllImport("wtsapi32.dll", SetLastError = true)] private static extern bool WTSQueryUserToken(uint sessionId, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)] private static extern bool DuplicateTokenEx(IntPtr token, uint access, IntPtr attributes, int impersonationLevel, int tokenType, out IntPtr primaryToken);
+    [DllImport("userenv.dll", SetLastError = true)] private static extern bool CreateEnvironmentBlock(out IntPtr environment, IntPtr token, bool inherit);
+    [DllImport("userenv.dll")] private static extern bool DestroyEnvironmentBlock(IntPtr environment);
+    [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateProcessAsUser(
+        IntPtr token, string applicationName, StringBuilder commandLine, IntPtr processAttributes, IntPtr threadAttributes,
+        bool inheritHandles, uint flags, IntPtr environment, string? currentDirectory, ref StartupInfo startupInfo, out ProcessInformation processInformation);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct StartupInfo { public int cb; public string? lpReserved; public string? lpDesktop; public string? lpTitle; public int dwX; public int dwY; public int dwXSize; public int dwYSize; public int dwXCountChars; public int dwYCountChars; public int dwFillAttribute; public int dwFlags; public short wShowWindow; public short cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInformation { public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WtsSessionInfo { public int SessionId; public IntPtr WinStationName; public WtsConnectState State; }
+    private enum WtsConnectState { Active = 0 }
 }
 
 internal sealed class SessionCompanion
 {
     public static async Task RunAsync()
     {
-        while (true)
+        await using var pipe = new NamedPipeClientStream(
+            ".",
+            "NemesysV2.UserSession",
+            PipeDirection.InOut,
+            PipeOptions.Asynchronous,
+            TokenImpersonationLevel.Identification);
+        try
         {
-            await using var pipe = new NamedPipeClientStream(
-                ".",
-                "NemesysV2.UserSession",
-                PipeDirection.InOut,
-                PipeOptions.Asynchronous,
-                TokenImpersonationLevel.Identification);
-            try
-            {
-                await pipe.ConnectAsync();
-            }
-            catch (IOException)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(1));
-                continue;
-            }
-            var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
-            if (warning is null) continue;
-
-            using var form = new Form
-            {
-                Width = 600,
-                Height = 270,
-                Text = "NemesysV2 update notice",
-                StartPosition = FormStartPosition.CenterScreen,
-                TopMost = true,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                ControlBox = false,
-                BackColor = Color.White,
-            };
-            var title = new Label
-            {
-                AutoSize = false,
-                Left = 28,
-                Top = 24,
-                Width = 530,
-                Height = 32,
-                Font = new Font("Segoe UI Semibold", 16),
-                Text = $"{warning.ApplicationName} needs to close",
-            };
-            var detail = new Label
-            {
-                AutoSize = false,
-                Left = 30,
-                Top = 64,
-                Width = 525,
-                Height = 60,
-                Font = new Font("Segoe UI", 10),
-                ForeColor = Color.FromArgb(75, 85, 99),
-                Text = "Maintenance is running\r\nPlease save your work. The application will close automatically so maintenance can continue.",
-            };
-            var countdown = new Label
-            {
-                AutoSize = false,
-                Left = 30,
-                Top = 132,
-                Width = 525,
-                Height = 28,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Segoe UI Semibold", 10),
-                ForeColor = Color.FromArgb(153, 96, 0),
-            };
-            var closeButton = new Button
-            {
-                Width = 170,
-                Height = 36,
-                Left = 382,
-                Top = 184,
-                Text = "Close application now",
-                Font = new Font("Segoe UI Semibold", 9),
-                BackColor = Color.FromArgb(8, 118, 71),
-                ForeColor = Color.White,
-                FlatStyle = FlatStyle.Flat,
-            };
-            closeButton.FlatAppearance.BorderSize = 0;
-            var postponed = false;
-            closeButton.Click += (_, _) => form.Close();
-            form.Controls.AddRange(new Control[] { title, detail, countdown, closeButton });
-            if (warning.AllowPostpone)
-            {
-                var postponeButton = new Button
-                {
-                    Width = 130,
-                    Height = 36,
-                    Left = 242,
-                    Top = 184,
-                    Text = "Postpone",
-                    Font = new Font("Segoe UI Semibold", 9),
-                    FlatStyle = FlatStyle.System,
-                };
-                postponeButton.Click += (_, _) =>
-                {
-                    postponed = true;
-                    form.Close();
-                };
-                form.Controls.Add(postponeButton);
-            }
-            using var timer = new System.Windows.Forms.Timer { Interval = 1000 };
-            var remaining = warning.Seconds;
-            countdown.Text = $"Closing in 00:{remaining:00}";
-            timer.Tick += (_, _) =>
-            {
-                remaining--;
-                countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
-                if (remaining <= 0) { timer.Stop(); form.Close(); }
-            };
-            timer.Start();
-            Application.Run(form);
-            await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
-            await pipe.FlushAsync();
+            await pipe.ConnectAsync(5000);
         }
+        catch (IOException)
+        {
+            return;
+        }
+        var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
+        if (warning is null) return;
+
+        using var form = new Form
+        {
+            Width = 600, Height = 270, Text = "NemesysV2 update notice",
+            StartPosition = FormStartPosition.CenterScreen, TopMost = true,
+            FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false,
+            MinimizeBox = false, ControlBox = false, BackColor = Color.White,
+        };
+        var title = new Label
+        {
+            AutoSize = false, Left = 28, Top = 24, Width = 530, Height = 32,
+            Font = new Font("Segoe UI Semibold", 16), Text = $"{warning.ApplicationName} needs to close",
+        };
+        var detail = new Label
+        {
+            AutoSize = false, Left = 30, Top = 64, Width = 525, Height = 60,
+            Font = new Font("Segoe UI", 10), ForeColor = Color.FromArgb(75, 85, 99),
+            Text = "Maintenance is running\r\nPlease save your work. The application will close automatically so maintenance can continue.",
+        };
+        var countdown = new Label
+        {
+            AutoSize = false, Left = 30, Top = 132, Width = 525, Height = 28,
+            TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI Semibold", 10),
+            ForeColor = Color.FromArgb(153, 96, 0),
+        };
+        var closeButton = new Button
+        {
+            Width = 170, Height = 36, Left = 382, Top = 184, Text = "Close application now",
+            Font = new Font("Segoe UI Semibold", 9), BackColor = Color.FromArgb(8, 118, 71),
+            ForeColor = Color.White, FlatStyle = FlatStyle.Flat,
+        };
+        closeButton.FlatAppearance.BorderSize = 0;
+        var postponed = false;
+        closeButton.Click += (_, _) => form.Close();
+        form.Controls.AddRange(new Control[] { title, detail, countdown, closeButton });
+        if (warning.AllowPostpone)
+        {
+            var postponeButton = new Button
+            {
+                Width = 130, Height = 36, Left = 242, Top = 184, Text = "Postpone",
+                Font = new Font("Segoe UI Semibold", 9), FlatStyle = FlatStyle.System,
+            };
+            postponeButton.Click += (_, _) =>
+            {
+                postponed = true;
+                form.Close();
+            };
+            form.Controls.Add(postponeButton);
+        }
+        using var timer = new System.Windows.Forms.Timer { Interval = 1000 };
+        var remaining = warning.Seconds;
+        countdown.Text = $"Closing in 00:{remaining:00}";
+        timer.Tick += (_, _) =>
+        {
+            remaining--;
+            countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
+            if (remaining <= 0) { timer.Stop(); form.Close(); }
+        };
+        timer.Start();
+        Application.Run(form);
+        await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
+        await pipe.FlushAsync();
     }
 }
 
 internal sealed record WarningMessage(string ApplicationName, int Seconds, bool AllowPostpone);
 internal sealed record WarningResponse(bool Postponed);
+internal sealed record RawCheckValue(string Raw, string Display);
+internal sealed record PolicyCheckAudit(string Label, string Observed, string Expected, bool Compliant);
 internal sealed record ClientResponse(string Id);
 internal sealed record SyncPollResult(SyncConfig Config, bool Modified);
 internal sealed record SyncConfig(

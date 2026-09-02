@@ -26,10 +26,28 @@ The installer:
 - stores the API key using machine-scoped DPAPI;
 - leaves the server endpoint and hostname in clear text;
 - registers the service as `LocalSystem`;
-- creates the per-user session companion at logon; and
+- removes the legacy LocalSystem logon task; and
 - starts the service.
 
-The service enrolls by `X-Nemesys-Hostname`, polls the authenticated sync endpoint, evaluates EXE file versions and INI section/key/value checks, sends audit reports, and applies each application's Update Mode timeout without restarting. It uses process enumeration and `Kill(entireProcessTree: true)` under `LocalSystem` so managed processes can be closed across Windows sessions.
+The service enrolls by hostname (the reported address is the best available local
+IPv4 address), polls the authenticated sync endpoint, evaluates EXE file versions
+and INI section/key/value checks, and sends labelled audit summaries for every
+configured check. Missing files, unavailable EXE versions, missing INI values, and
+unconfigured expected values are explicitly reported.
+
+When a noncompliant application must be closed, the LocalSystem service creates a
+service-owned, ACL-protected named pipe and launches a short-lived
+`--session-companion` in the active user's `winsta0\default` desktop using the
+user session token. The service verifies that the connected companion is an
+authenticated user running the installed executable in that session. If no valid
+companion can launch, connect, authenticate, or reply, enforcement is skipped;
+it never closes the application merely because a warning timed out. A completed
+countdown or **Close application now** proceeds, while **Postpone** defers only
+when policy allows it.
+
+The service uses process enumeration and `Kill(entireProcessTree: true)` under
+`LocalSystem` so managed processes can be closed across Windows sessions after a
+valid warning outcome.
 
 ## Runtime logs
 
@@ -38,6 +56,10 @@ The service writes a daily log to:
 ```text
 C:\ProgramData\NemesysV2\logs\client-YYYYMMDD.log
 ```
+
+The log records evaluation/report summaries and warning requests, companion
+launch/connection/authentication outcomes, postponements, unavailable companions,
+process-close requests, and installation attempts.
 
 Synchronization failures are also written to the Windows Application Event Log
 under the `NemesysV2.Client` source. The service retries failed synchronization
