@@ -29,7 +29,10 @@ Before applying the test overlay:
    `overlays/test/pg-env.yml`. The password in `DATABASE_URL` must match
    `POSTGRES_PASSWORD`.
 6. Replace the example hostname and select the cluster’s ingress/TLS annotations.
-7. Apply the test overlay:
+7. Ensure the `nemesys` namespace exists. For ArgoCD, set
+   `spec.syncPolicy.syncOptions` to include `CreateNamespace=true`; for manual
+   kubectl use, run `kubectl create namespace nemesys` once.
+8. Apply the test overlay:
 
 ```bash
 kubectl apply -k deploy/kubernetes/overlays/test
