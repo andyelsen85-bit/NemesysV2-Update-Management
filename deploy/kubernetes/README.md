@@ -57,9 +57,16 @@ docker push nexus.example.com:8083/postgres:16-alpine
 
 The API automatically provisions the Nemesys schema during startup using
 idempotent, additive DDL. It creates missing tables and adds missing client
-poll-timestamp and policy-postpone columns before seed data is inserted. No
+poll-timestamp and policy-postpone columns before default settings are
+initialized. No
 manual schema command is required. The database user in `DATABASE_URL` must
 have permission to create tables and alter tables.
+
+Fresh installations start without demo clients or sample application policies.
+For an existing installation that was initialized with the old demo data, run
+`migrations/004-remove-demo-data.sql` once. It removes the two known seeded audit
+rows and removes client/application rows only when their original seeded
+identity fields also match.
 
 Before deploying the release that introduces one latest audit row per client,
 run `migrations/003-latest-audit-per-client.sql` once against an existing
