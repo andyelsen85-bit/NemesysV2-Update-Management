@@ -5,6 +5,8 @@ metadata:
   namespace: nemesys
   labels:
     team: infra
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=false,Prune=false,Delete=false
 spec:
   accessModes:
     - ReadWriteMany

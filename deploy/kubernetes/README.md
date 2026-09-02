@@ -34,6 +34,12 @@ Before applying the test overlay:
    kubectl use, run `kubectl create namespace nemesys` once.
 8. Apply the test overlay:
 
+The PostgreSQL PVC is intentionally protected from replacement and pruning by
+an ArgoCD resource annotation. Do not enable `Replace=true` globally for this
+Application. A PVC that is already `Bound` must not be deleted or recreated;
+changing its `storageClassName`, `volumeName`, `volumeMode`, or access mode can
+destroy the database or make the sync fail.
+
 ```bash
 kubectl apply -k deploy/kubernetes/overlays/test
 kubectl -n nemesys rollout status deployment/pg-deployment
