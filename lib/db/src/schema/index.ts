@@ -51,7 +51,7 @@ export const auditEntriesTable = pgTable("nemesys_audit_entries", {
 export const serverSettingsTable = pgTable("nemesys_server_settings", {
   id: text("id").primaryKey(),
   syncIntervalSeconds: integer("sync_interval_seconds").notNull().default(300),
-  syncPort: integer("sync_port").notNull().default(5187),
+  syncPort: integer("sync_port").notNull().default(443),
   adminHttpsEnabled: boolean("admin_https_enabled").notNull().default(true),
   adminUsername: text("admin_username").notNull().default("admin"),
   adminPasswordHash: text("admin_password_hash"),

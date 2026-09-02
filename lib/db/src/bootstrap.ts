@@ -52,7 +52,7 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS public.nemesys_server_settings (
     id text PRIMARY KEY NOT NULL,
     sync_interval_seconds integer DEFAULT 300 NOT NULL,
-    sync_port integer DEFAULT 5187 NOT NULL,
+    sync_port integer DEFAULT 443 NOT NULL,
     admin_https_enabled boolean DEFAULT true NOT NULL,
     admin_username text DEFAULT 'admin' NOT NULL,
     admin_password_hash text,
@@ -97,6 +97,9 @@ const schemaStatements = [
     ADD COLUMN IF NOT EXISTS last_successful_sync timestamp with time zone`,
   `ALTER TABLE public.nemesys_software_policies
     ADD COLUMN IF NOT EXISTS allow_postpone boolean NOT NULL DEFAULT false`,
+  `UPDATE public.nemesys_server_settings
+    SET sync_port = 443
+    WHERE id = 'default' AND sync_port = 5187`,
 ] as const;
 
 export async function ensureDatabaseSchema(): Promise<void> {

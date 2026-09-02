@@ -3,7 +3,7 @@
 The Windows client is installed silently and runs as a `LocalSystem` service. The installer receives the server location and the shared API key:
 
 ```powershell
-NemesysClientSetup.exe /quiet /server "https://nemesys.example.com" /port 5187 /apiKey "<one-time-key>"
+NemesysClientSetup.exe /quiet /server "https://nemesys.example.com" /apiKey "<one-time-key>"
 ```
 
 The source implementation is in `clients/windows-service`. Publish it on a Windows build runner with the .NET 8 SDK to produce the self-contained EXE.

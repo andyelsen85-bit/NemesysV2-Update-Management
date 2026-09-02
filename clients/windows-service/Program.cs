@@ -47,7 +47,7 @@ internal sealed class ClientConfiguration
     private static readonly string FilePath = Path.Combine(DirectoryPath, "client.json");
 
     public string Server { get; init; } = "";
-    public int Port { get; init; } = 5187;
+    public int Port { get; init; } = 443;
     public string EncryptedApiKey { get; init; } = "";
     public string Hostname { get; init; } = Environment.MachineName;
     public int SyncIntervalSeconds { get; init; } = 300;
@@ -95,7 +95,7 @@ internal sealed class ClientConfiguration
         var configuration = new ClientConfiguration
         {
             Server = server,
-            Port = int.TryParse(portText, out var port) ? port : 5187,
+            Port = int.TryParse(portText, out var port) ? port : 443,
             EncryptedApiKey = DpapiSecretStore.Protect(apiKey),
             Hostname = Environment.MachineName,
         };

@@ -73,8 +73,9 @@ has one replica, so configure PostgreSQL backups and understand that this is not
 a highly available database topology.
 
 The Ingress sends `/api/*` to the API and all other paths to the console. The
-API deployment is replica-safe because runtime state is held in PostgreSQL and
-the administrator session is signed with `SESSION_SECRET`.
+Ingress terminates HTTPS on public port `443` and forwards to the internal
+HTTP Services. The API deployment is replica-safe because runtime state is held
+in PostgreSQL and the administrator session is signed with `SESSION_SECRET`.
 
 ## Update the test image versions
 
@@ -95,3 +96,32 @@ Because the API and web containers share one Pod network namespace, they must
 listen on different container ports. The API uses `8081` and the web console
 uses `8080`; the API Service remains available on Service port `8080` and
 targets the API's `8081` container port.
+
+## HTTPS and Windows client connections
+
+The public client endpoint is the Ingress hostname on port `443`:
+
+```text
+https://<nemesys-ingress-host>/api/sync/enroll
+```
+
+The Windows installer uses standard HTTPS without requiring a `/port`
+argument. The service defaults to TCP `443`. The `sync_port` compatibility
+setting is seeded at `443`, and existing installations still using the old
+untouched default `5187` are moved to `443` during additive startup bootstrap.
+
+Install a certificate for the Ingress as a Kubernetes TLS Secret; do not put
+the certificate or private key in Git:
+
+```bash
+kubectl -n nemesys create secret tls nemesys-tls \
+  --cert=/secure/path/fullchain.pem \
+  --key=/secure/path/private-key.pem
+```
+
+Set the real client-facing DNS name in the Ingress `host` and `tls.hosts`
+values. The existing `nemesys.example.com` value is a placeholder. The
+certificate must cover that hostname. The certificate upload in the
+administrator console is for a directly exposed API runtime; Kubernetes
+Ingress TLS termination should be used for this deployment because the
+console Nginx proxies to the API over internal HTTP.

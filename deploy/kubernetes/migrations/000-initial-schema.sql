@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS public.nemesys_ldap_settings (
 CREATE TABLE IF NOT EXISTS public.nemesys_server_settings (
   id text PRIMARY KEY NOT NULL,
   sync_interval_seconds integer DEFAULT 300 NOT NULL,
-  sync_port integer DEFAULT 5187 NOT NULL,
+  sync_port integer DEFAULT 443 NOT NULL,
   admin_https_enabled boolean DEFAULT true NOT NULL,
   admin_username text DEFAULT 'admin' NOT NULL,
   admin_password_hash text,

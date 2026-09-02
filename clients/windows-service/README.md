@@ -9,11 +9,12 @@ dotnet publish .\NemesysV2.Client.csproj -c Release
 Run the installer elevated:
 
 ```powershell
-NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /port 5187 /apiKey "<one-time-key>"
+NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /apiKey "<one-time-key>"
 ```
 
 `/server` must include the `http://` or `https://` scheme. The client appends
-`/api` and uses `/port` when connecting to the control plane.
+`/api` and defaults to standard HTTPS port `443`. `/port` remains available
+only as an optional compatibility override.
 
 The installer:
 

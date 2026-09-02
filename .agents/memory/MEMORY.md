@@ -1,5 +1,5 @@
 - [API codegen Zod constraint](api-codegen-zod-constraint.md) — OpenAPI integer types currently emit unsupported zod.int() in this workspace.
 - [Drizzle non-TTY schema pushes](drizzle-non-tty-schema-pushes.md) — additive development schema changes may need explicit SQL when Drizzle cannot resolve rename prompts without a TTY.
-- [Nemesys security and MSI](nemesys-security-and-msi.md) — LDAP/PKI secrets depend on SESSION_SECRET; the Windows MSI must be built on a Windows runner with WiX and .NET.
+- [Nemesys security, TLS, and MSI](nemesys-security-and-msi.md) — Kubernetes TLS terminates at Ingress; protected settings require stable SESSION_SECRET; MSI builds run on Windows.
 - [Nemesys container publishing](nemesys-container-publishing.md) — GitHub Actions publishes amd64 API and console images to GHCR with immutable SHA tags and a moving latest tag.
 - [Windows companion IPC](windows-companion-ipc.md) — LocalSystem must own the warning pipe and authenticate the installed interactive companion before trusting responses.

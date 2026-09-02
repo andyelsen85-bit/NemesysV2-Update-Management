@@ -20,7 +20,7 @@
     </Feature>
 
     <Property Id="NEMESYS_SERVER" Secure="yes" />
-    <Property Id="NEMESYS_PORT" Value="5187" Secure="yes" />
+    <Property Id="NEMESYS_PORT" Value="443" Secure="yes" />
     <Property Id="NEMESYS_API_KEY" Hidden="yes" Secure="yes" />
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />

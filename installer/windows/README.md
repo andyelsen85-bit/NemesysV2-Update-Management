@@ -20,7 +20,7 @@ Build on a Windows runner with the .NET 8 SDK:
 For an unattended deployment, pass MSI properties:
 
 ```powershell
-msiexec /i NemesysV2.Client.msi /qn NEMESYS_SERVER="https://updates.example.local" NEMESYS_PORT=5187 NEMESYS_API_KEY="..." /l*v nemesys-msi.log
+msiexec /i NemesysV2.Client.msi /qn NEMESYS_SERVER="https://updates.example.local" NEMESYS_API_KEY="..." /l*v nemesys-msi.log
 ```
 
 The API key is intentionally accepted only through an explicit install
