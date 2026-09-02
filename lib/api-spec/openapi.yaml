@@ -10,6 +10,18 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Control center overview
+  - name: clients
+    description: Enrolled Windows client services
+  - name: software
+    description: Software update policies
+  - name: audit
+    description: Synchronization audit history
+  - name: settings
+    description: Server configuration
+  - name: sync
+    description: Client synchronization protocol
 paths:
   /healthz:
     get:
@@ -24,7 +36,196 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /clients:
+    get:
+      operationId: listClients
+      tags: [clients]
+      summary: List enrolled clients
+      responses:
+        "200":
+          description: Enrolled clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+  /clients/{id}/revoke:
+    post:
+      operationId: revokeClient
+      tags: [clients]
+      summary: Revoke a client certificate
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Revoked client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404":
+          description: Client not found
+  /software:
+    get:
+      operationId: listSoftware
+      tags: [software]
+      summary: List software update policies
+      responses:
+        "200":
+          description: Software policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SoftwarePolicy"
+    post:
+      operationId: createSoftware
+      tags: [software]
+      summary: Create a software update policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoftwarePolicyInput"
+      responses:
+        "201":
+          description: Created software policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoftwarePolicy"
+  /software/{id}:
+    patch:
+      operationId: updateSoftware
+      tags: [software]
+      summary: Update a software policy
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SoftwarePolicyInput"
+      responses:
+        "200":
+          description: Updated software policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SoftwarePolicy"
+        "404":
+          description: Software policy not found
+  /audit:
+    get:
+      operationId: listAuditEntries
+      tags: [audit]
+      summary: List recent synchronization audit entries
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: Audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+  /settings:
+    get:
+      operationId: getServerSettings
+      tags: [settings]
+      summary: Get server settings
+      responses:
+        "200":
+          description: Server settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettings"
+    patch:
+      operationId: updateServerSettings
+      tags: [settings]
+      summary: Update server settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServerSettingsInput"
+      responses:
+        "200":
+          description: Updated server settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettings"
+  /sync/config:
+    get:
+      operationId: getSyncConfig
+      tags: [sync]
+      summary: Get effective client sync configuration
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective synchronization configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncConfig"
+  /sync/report:
+    post:
+      operationId: submitSyncReport
+      tags: [sync]
+      summary: Submit a client synchronization report
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncReportInput"
+      responses:
+        "201":
+          description: Report accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEntry"
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
   schemas:
     HealthStatus:
       type: object
@@ -33,4 +234,141 @@ components:
           type: string
       required:
         - status
+    DashboardSummary:
+      type: object
+      required: [totalClients, onlineClients, protectedSoftware, syncsToday, latestSync]
+      properties:
+        totalClients:
+          type: number
+        onlineClients:
+          type: number
+        protectedSoftware:
+          type: number
+        syncsToday:
+          type: number
+        latestSync:
+          type: ["string", "null"]
+          format: date-time
+    Client:
+      type: object
+      required: [id, name, hostname, address, status, lastSync, syncVersion, certificateStatus]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        hostname: { type: string }
+        address: { type: string }
+        status:
+          type: string
+          enum: [online, stale, revoked]
+        lastSync:
+          type: ["string", "null"]
+          format: date-time
+        syncVersion: { type: string }
+        certificateStatus:
+          type: string
+          enum: [valid, expiring, revoked]
+    IniRule:
+      type: object
+      required: [section, key, expectedValue]
+      properties:
+        section: { type: string }
+        key: { type: string }
+        expectedValue: { type: string }
+    SoftwarePolicy:
+      type: object
+      required: [id, name, executable, targetVersion, ruleType, iniRules, graceSeconds, enabled, lastUpdated]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        executable: { type: string }
+        targetVersion: { type: string }
+        ruleType:
+          type: string
+          enum: [file-version, ini]
+        iniRules:
+          type: array
+          items: { $ref: "#/components/schemas/IniRule" }
+        graceSeconds: { type: number, minimum: 0 }
+        enabled: { type: boolean }
+        lastUpdated:
+          type: string
+          format: date-time
+    SoftwarePolicyInput:
+      type: object
+      required: [name, executable, targetVersion, ruleType, graceSeconds, enabled]
+      properties:
+        name: { type: string, minLength: 1 }
+        executable: { type: string, minLength: 1 }
+        targetVersion: { type: string, minLength: 1 }
+        ruleType:
+          type: string
+          enum: [file-version, ini]
+        iniRules:
+          type: array
+          items: { $ref: "#/components/schemas/IniRule" }
+        graceSeconds: { type: number, minimum: 0, maximum: 3600 }
+        enabled: { type: boolean }
+    AuditEntry:
+      type: object
+      required: [id, clientId, clientName, timestamp, result, applications]
+      properties:
+        id: { type: string }
+        clientId: { type: string }
+        clientName: { type: string }
+        timestamp:
+          type: string
+          format: date-time
+        result:
+          type: string
+          enum: [success, warning, rejected]
+        applications:
+          type: array
+          items: { $ref: "#/components/schemas/ApplicationReport" }
+    ApplicationReport:
+      type: object
+      required: [softwareId, softwareName, observedVersion, expectedVersion, compliant]
+      properties:
+        softwareId: { type: string }
+        softwareName: { type: string }
+        observedVersion: { type: string }
+        expectedVersion: { type: string }
+        compliant: { type: boolean }
+    ServerSettings:
+      type: object
+      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, mtlsRequired]
+      properties:
+        syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
+        syncPort: { type: number, minimum: 1, maximum: 65535 }
+        adminHttpsEnabled: { type: boolean }
+        mtlsRequired: { type: boolean }
+    ServerSettingsInput:
+      type: object
+      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, mtlsRequired]
+      properties:
+        syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
+        syncPort: { type: number, minimum: 1, maximum: 65535 }
+        adminHttpsEnabled: { type: boolean }
+        mtlsRequired: { type: boolean }
+    SyncConfig:
+      type: object
+      required: [clientId, syncIntervalSeconds, configVersion, policies]
+      properties:
+        clientId: { type: string }
+        syncIntervalSeconds: { type: number }
+        configVersion: { type: string }
+        policies:
+          type: array
+          items: { $ref: "#/components/schemas/SoftwarePolicy" }
+    SyncReportInput:
+      type: object
+      required: [clientId, clientName, result, applications]
+      properties:
+        clientId: { type: string }
+        clientName: { type: string }
+        result:
+          type: string
+          enum: [success, warning, rejected]
+        applications:
+          type: array
+          items: { $ref: "#/components/schemas/ApplicationReport" }
 

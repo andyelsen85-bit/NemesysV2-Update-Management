@@ -1,0 +1,1 @@
+- [API codegen Zod constraint](api-codegen-zod-constraint.md) — OpenAPI integer types currently emit unsupported zod.int() in this workspace.

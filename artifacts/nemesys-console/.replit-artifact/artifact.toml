@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "NemesysV2 Control Center"
+description = "A Windows software update control center for defining application version rules, monitoring enrolled client services, and reviewing synchronization audit history."
+version = "1.0.0"
+id = "artifacts/nemesys-console"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19533
+
+[services.development]
+run = "pnpm --filter @workspace/nemesys-console run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/nemesys-console", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/nemesys-console/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19533"
+BASE_PATH = "/"

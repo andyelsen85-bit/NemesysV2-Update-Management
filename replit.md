@@ -1,6 +1,6 @@
-# [Project name]
+# NemesysV2 Update Management
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Windows software update enforcement with a server control center, client sync protocol, and audit visibility.
 
 ## Run & Operate
 
@@ -22,15 +22,22 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/nemesys-console` — React admin console for overview, clients, software policies, audit history, and server settings.
+- `artifacts/api-server` — Express API used by the control center and future Windows service.
+- `lib/api-spec/openapi.yaml` — source of truth for dashboard, policy, client, settings, audit, and sync contracts.
+- `lib/db/src/schema/index.ts` — Drizzle schema for Nemesys clients, policies, audit records, and server settings.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The admin console and future Windows client use the same generated OpenAPI contract.
+- Client sync configuration is separate from the admin surface so the sync port can later be exposed through IIS/firewall policy independently.
+- Software policies support both Windows file-version checks and section/key/value checks for legacy INI files.
+- The Windows service should remain non-interactive; a companion user-session process will own countdown notifications.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Administrators can monitor enrolled clients, define enforcement policies, review sync history, and configure sync cadence and transport security.
+- The uploaded Poste INI format is represented by rules such as `[Poste] Version=454` and `VersMedSyst=418`.
 
 ## User preferences
 
