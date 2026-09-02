@@ -12,6 +12,9 @@ Run the installer elevated:
 NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /port 5187 /apiKey "<one-time-key>"
 ```
 
+`/server` must include the `http://` or `https://` scheme. The client appends
+`/api` and uses `/port` when connecting to the control plane.
+
 The installer:
 
 - stores the API key using machine-scoped DPAPI;
@@ -21,6 +24,18 @@ The installer:
 - starts the service.
 
 The service enrolls by `X-Nemesys-Hostname`, polls the authenticated sync endpoint, evaluates EXE file versions and INI section/key/value checks, sends audit reports, and applies each application's Update Mode timeout without restarting. It uses process enumeration and `Kill(entireProcessTree: true)` under `LocalSystem` so managed processes can be closed across Windows sessions.
+
+## Runtime logs
+
+The service writes a daily log to:
+
+```text
+C:\ProgramData\NemesysV2\logs\client-YYYYMMDD.log
+```
+
+Synchronization failures are also written to the Windows Application Event Log
+under the `NemesysV2.Client` source. The service retries failed synchronization
+every 30 seconds.
 
 An x64 MSI wrapper is available under `installer/windows` and uses the same
 DPAPI-backed silent installation flow. Build it on a Windows runner with

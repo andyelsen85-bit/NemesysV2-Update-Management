@@ -14,6 +14,12 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogInformation(
+            "NemesysV2 client started for hostname {Hostname}; server {Server}; port {Port}",
+            configuration.Hostname,
+            configuration.Server,
+            configuration.Port);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -29,7 +35,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             }
             catch (Exception exception)
             {
-                logger.LogError(exception, "NemesysV2 synchronization failed");
+                logger.LogError(
+                    exception,
+                    "NemesysV2 synchronization failed; retrying in 30 seconds against {Server}:{Port}",
+                    configuration.Server,
+                    configuration.Port);
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
             }
         }

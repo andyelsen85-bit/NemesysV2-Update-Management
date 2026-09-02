@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -27,6 +28,11 @@ internal static class Program
 
         var configuration = ClientConfiguration.Load();
         var builder = Host.CreateApplicationBuilder(args);
+        builder.Logging.AddProvider(new DailyFileLoggerProvider(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NemesysV2",
+                "logs")));
         builder.Services.AddSingleton(configuration);
         builder.Services.AddHostedService<SyncWorker>();
         builder.Services.AddWindowsService(options => options.ServiceName = "NemesysV2 Client");
@@ -47,7 +53,25 @@ internal sealed class ClientConfiguration
     public int SyncIntervalSeconds { get; init; } = 300;
 
     public string ApiKey => DpapiSecretStore.Unprotect(EncryptedApiKey);
-    public string ApiBase => $"{Server.TrimEnd('/')}/api";
+    public string ApiBase
+    {
+        get
+        {
+            if (!Uri.TryCreate(Server, UriKind.Absolute, out var baseUri) ||
+                (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new InvalidOperationException(
+                    "The configured server must be an absolute URL beginning with http:// or https://.");
+            }
+
+            var uri = new UriBuilder(baseUri)
+            {
+                Port = Port,
+                Path = $"{baseUri.AbsolutePath.TrimEnd('/')}/api",
+            };
+            return uri.Uri.AbsoluteUri.TrimEnd('/');
+        }
+    }
 
     public static ClientConfiguration Load()
     {
