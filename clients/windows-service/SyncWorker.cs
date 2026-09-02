@@ -750,14 +750,12 @@ internal static class SessionWarningChannel
             if (!isAuthenticatedUser || !IsExpectedSessionCompanion(pipe, sessionId.Value))
                 throw new UnauthorizedAccessException("The pipe client is not the installed NemesysV2 session companion.");
             logger.LogInformation("Warning companion connected and authenticated for {ApplicationName}", applicationName);
-            await JsonSerializer.SerializeAsync(
-                pipe, new WarningMessage(applicationName, seconds, allowPostpone), JsonOptions.Default, connectionCancellation.Token);
-            await pipe.FlushAsync(connectionCancellation.Token);
+            await PipeJsonProtocol.WriteAsync(
+                pipe, new WarningMessage(applicationName, seconds, allowPostpone), connectionCancellation.Token);
 
             using var responseCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             responseCancellation.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, seconds) + 15));
-            var response = await JsonSerializer.DeserializeAsync<WarningResponse>(
-                pipe, JsonOptions.Default, responseCancellation.Token);
+            var response = await PipeJsonProtocol.ReadAsync<WarningResponse>(pipe, responseCancellation.Token);
             if (response is null) throw new IOException("Warning companion closed without a response.");
             var outcome = allowPostpone && response.Postponed ? WarningOutcome.Postpone : WarningOutcome.Proceed;
             logger.LogInformation("Warning outcome for {ApplicationName}: {Outcome}", applicationName, outcome);
@@ -835,6 +833,34 @@ internal sealed class EnforcementState
     public DateTimeOffset CooldownUntil { get; set; }
     public string? Signature { get; set; }
     public bool Compliant { get; set; }
+}
+
+internal static class PipeJsonProtocol
+{
+    public static async Task WriteAsync<T>(
+        Stream stream,
+        T message,
+        CancellationToken cancellationToken)
+    {
+        var payload = JsonSerializer.Serialize(message, JsonOptions.Default) + "\n";
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        await stream.WriteAsync(bytes, cancellationToken);
+        await stream.FlushAsync(cancellationToken);
+    }
+
+    public static async Task<T?> ReadAsync<T>(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        var line = await reader.ReadLineAsync(cancellationToken);
+        return line is null ? default : JsonSerializer.Deserialize<T>(line, JsonOptions.Default);
+    }
 }
 
 internal static class SessionCompanionLauncher
@@ -975,7 +1001,7 @@ internal sealed class SessionCompanion
                 PipeOptions.Asynchronous,
                 TokenImpersonationLevel.Identification);
             await pipe.ConnectAsync(5000);
-            var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
+            var warning = await PipeJsonProtocol.ReadAsync<WarningMessage>(pipe, CancellationToken.None);
             if (warning is null) return;
 
             using var form = new Form
@@ -1037,8 +1063,7 @@ internal sealed class SessionCompanion
             };
             timer.Start();
             Application.Run(form);
-            await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
-            await pipe.FlushAsync();
+            await PipeJsonProtocol.WriteAsync(pipe, new WarningResponse(postponed), CancellationToken.None);
         }
         catch (Exception exception) when (exception is OperationCanceledException or TimeoutException or IOException or JsonException or ObjectDisposedException)
         {
