@@ -6,7 +6,7 @@ metadata:
   namespace: nemesys
 data:
   NODE_ENV: "production"
-  PORT: "8080"
+  PORT: "8081"
 ---
 apiVersion: v1
 kind: Secret

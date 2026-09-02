@@ -24,7 +24,7 @@ spec:
           image: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-api-server:latest
           ports:
             - name: api-http
-              containerPort: 8080
+              containerPort: 8081
               protocol: TCP
           envFrom:
             - configMapRef:

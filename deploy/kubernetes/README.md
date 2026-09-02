@@ -90,3 +90,8 @@ The base deployment contains both the API and web containers, matching the
 Change Manager pattern. Production will be added later as a separate overlay
 that points `DATABASE_URL` to the Patroni service and does not include the test
 PostgreSQL resources.
+
+Because the API and web containers share one Pod network namespace, they must
+listen on different container ports. The API uses `8081` and the web console
+uses `8080`; the API Service remains available on Service port `8080` and
+targets the API's `8081` container port.
