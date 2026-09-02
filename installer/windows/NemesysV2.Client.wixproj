@@ -5,7 +5,7 @@
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
     <MsiVersion>1.0.0</MsiVersion>
-    <DefineConstants>ClientPublishDir=$(MSBuildProjectDirectory)\..\..\clients\windows-service\bin\Release\net8.0-windows\win-x64\publish</DefineConstants>
+    <DefineConstants>MsiVersion=$(MsiVersion);ClientPublishDir=$(MSBuildProjectDirectory)\..\..\clients\windows-service\bin\Release\net8.0-windows\win-x64\publish</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
