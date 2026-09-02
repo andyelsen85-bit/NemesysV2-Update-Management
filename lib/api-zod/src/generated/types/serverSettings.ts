@@ -18,5 +18,18 @@ export interface ServerSettings {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
-  mtlsRequired: boolean;
+  apiKeyConfigured: boolean;
+  /** @nullable */
+  apiKeyLastRotatedAt: Date | null;
+  updateMode: boolean;
+  /**
+     * @minimum 5
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds: number;
 }

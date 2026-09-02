@@ -10,6 +10,7 @@ export type SoftwarePolicyInputRuleType = typeof SoftwarePolicyInputRuleType[key
 
 
 export const SoftwarePolicyInputRuleType = {
+  application: 'application',
   'file-version': 'file-version',
   ini: 'ini',
 } as const;

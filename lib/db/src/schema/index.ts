@@ -19,6 +19,8 @@ export const softwarePoliciesTable = pgTable("nemesys_software_policies", {
   executable: text("executable").notNull(),
   targetVersion: text("target_version").notNull(),
   ruleType: text("rule_type").notNull(),
+  exeChecks: jsonb("exe_checks").$type<Array<{ executable: string; targetVersion: string; installCommand?: string }>>().notNull().default([]),
+  iniChecks: jsonb("ini_checks").$type<Array<{ filePath: string; section: string; key: string; expectedValue: string }>>().notNull().default([]),
   iniRules: jsonb("ini_rules").$type<Array<{ section: string; key: string; expectedValue: string }>>().notNull().default([]),
   graceSeconds: integer("grace_seconds").notNull().default(30),
   enabled: boolean("enabled").notNull().default(true),
@@ -45,7 +47,13 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   syncIntervalSeconds: integer("sync_interval_seconds").notNull().default(300),
   syncPort: integer("sync_port").notNull().default(5187),
   adminHttpsEnabled: boolean("admin_https_enabled").notNull().default(true),
-  mtlsRequired: boolean("mtls_required").notNull().default(true),
+  adminUsername: text("admin_username").notNull().default("admin"),
+  adminPasswordHash: text("admin_password_hash"),
+  clientApiKeyHash: text("client_api_key_hash"),
+  apiKeyLastRotatedAt: timestamp("api_key_last_rotated_at", { withTimezone: true }),
+  updateMode: boolean("update_mode").notNull().default(false),
+  normalCloseTimeoutSeconds: integer("normal_close_timeout_seconds").notNull().default(30),
+  updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
 });
 
 export const insertClientSchema = createInsertSchema(clientsTable);

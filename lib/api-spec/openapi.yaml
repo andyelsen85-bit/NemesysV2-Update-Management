@@ -78,6 +78,22 @@ paths:
                 $ref: "#/components/schemas/Client"
         "404":
           description: Client not found
+  /clients/{id}/sync-config:
+    get:
+      operationId: getClientSyncConfig
+      tags: [clients]
+      summary: Get a client's effective synchronization configuration
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Effective synchronization configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncConfig"
+        "404":
+          description: Client not found
   /software:
     get:
       operationId: listSoftware
@@ -154,34 +170,105 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditEntry"
   /settings:
-    get:
-      operationId: getServerSettings
-      tags: [settings]
-      summary: Get server settings
-      responses:
-        "200":
-          description: Server settings
+      get:
+        operationId: getServerSettings
+        tags: [settings]
+        summary: Get server settings
+        responses:
+          "200":
+            description: Server settings
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ServerSettings"
+      patch:
+        operationId: updateServerSettings
+        tags: [settings]
+        summary: Update server settings
+        requestBody:
+          required: true
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServerSettings"
-    patch:
-      operationId: updateServerSettings
+                $ref: "#/components/schemas/ServerSettingsInput"
+        responses:
+          "200":
+            description: Updated server settings
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/ServerSettings"
+  /settings/api-key/rotate:
+    post:
+      operationId: rotateClientApiKey
       tags: [settings]
-      summary: Update server settings
+      summary: Rotate the shared client API key
+      description: Generates a new shared client API key. The plaintext key is returned only in this response so it can be supplied to silent client installation commands.
+      responses:
+        "200":
+          description: Rotated client API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyRotation"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Start an administrator session
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ServerSettingsInput"
+              $ref: "#/components/schemas/AuthLoginInput"
       responses:
         "200":
-          description: Updated server settings
+          description: Authenticated administrator
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ServerSettings"
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Invalid credentials
+  /auth/me:
+    get:
+      operationId: getCurrentAdministrator
+      tags: [auth]
+      summary: Get the current administrator session
+      responses:
+        "200":
+          description: Current administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+  /auth/password:
+    post:
+      operationId: changeAdministratorPassword
+      tags: [auth]
+      summary: Change the administrator password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthPasswordChangeInput"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: End the administrator session
+      responses:
+        "204":
+          description: Session ended
   /sync/config:
     get:
       operationId: getSyncConfig
@@ -193,6 +280,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/ClientApiKey"
+        - $ref: "#/components/parameters/ClientHostname"
       responses:
         "200":
           description: Effective synchronization configuration
@@ -200,11 +289,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SyncConfig"
+  /sync/enroll:
+    post:
+      operationId: enrollClient
+      tags: [sync]
+      summary: Enroll or refresh a Windows client by hostname
+      parameters:
+        - $ref: "#/components/parameters/ClientApiKey"
+        - $ref: "#/components/parameters/ClientHostname"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientEnrollmentInput"
+      responses:
+        "200":
+          description: Enrolled client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
   /sync/report:
     post:
       operationId: submitSyncReport
       tags: [sync]
       summary: Submit a client synchronization report
+      parameters:
+        - $ref: "#/components/parameters/ClientApiKey"
+        - $ref: "#/components/parameters/ClientHostname"
       requestBody:
         required: true
         content:
@@ -226,7 +339,25 @@ components:
       required: true
       schema:
         type: string
+    ClientApiKey:
+      name: X-Nemesys-API-Key
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Shared client API key delivered during silent installation.
+    ClientHostname:
+      name: X-Nemesys-Hostname
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Windows hostname/computer name used as client identity.
   schemas:
+    ClientEnrollmentInput:
+      type: object
+      properties:
+        address: { type: string }
     HealthStatus:
       type: object
       properties:
@@ -234,6 +365,23 @@ components:
           type: string
       required:
         - status
+    AuthLoginInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1 }
+        password: { type: string, minLength: 1 }
+    AuthSession:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string }
+    AuthPasswordChangeInput:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1 }
+        newPassword: { type: string, minLength: 8 }
     DashboardSummary:
       type: object
       required: [totalClients, onlineClients, protectedSoftware, syncsToday, latestSync]
@@ -274,9 +422,24 @@ components:
         section: { type: string }
         key: { type: string }
         expectedValue: { type: string }
+    ExeCheck:
+      type: object
+      required: [executable, targetVersion]
+      properties:
+        executable: { type: string }
+        targetVersion: { type: string }
+        installCommand: { type: string }
+    IniCheck:
+      type: object
+      required: [filePath, section, key, expectedValue]
+      properties:
+        filePath: { type: string }
+        section: { type: string }
+        key: { type: string }
+        expectedValue: { type: string }
     SoftwarePolicy:
       type: object
-      required: [id, name, executable, targetVersion, ruleType, iniRules, graceSeconds, enabled, lastUpdated]
+      required: [id, name, executable, targetVersion, ruleType, exeChecks, iniChecks, iniRules, graceSeconds, enabled, lastUpdated]
       properties:
         id: { type: string }
         name: { type: string }
@@ -284,7 +447,13 @@ components:
         targetVersion: { type: string }
         ruleType:
           type: string
-          enum: [file-version, ini]
+          enum: [application, file-version, ini]
+        exeChecks:
+          type: array
+          items: { $ref: "#/components/schemas/ExeCheck" }
+        iniChecks:
+          type: array
+          items: { $ref: "#/components/schemas/IniCheck" }
         iniRules:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
@@ -295,14 +464,20 @@ components:
           format: date-time
     SoftwarePolicyInput:
       type: object
-      required: [name, executable, targetVersion, ruleType, graceSeconds, enabled]
+      required: [name, ruleType, graceSeconds, enabled]
       properties:
         name: { type: string, minLength: 1 }
-        executable: { type: string, minLength: 1 }
-        targetVersion: { type: string, minLength: 1 }
+        executable: { type: string }
+        targetVersion: { type: string }
         ruleType:
           type: string
-          enum: [file-version, ini]
+          enum: [application, file-version, ini]
+        exeChecks:
+          type: array
+          items: { $ref: "#/components/schemas/ExeCheck" }
+        iniChecks:
+          type: array
+          items: { $ref: "#/components/schemas/IniCheck" }
         iniRules:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
@@ -335,27 +510,47 @@ components:
         compliant: { type: boolean }
     ServerSettings:
       type: object
-      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, mtlsRequired]
+      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, apiKeyConfigured, apiKeyLastRotatedAt, updateMode, normalCloseTimeoutSeconds, updateModeCloseTimeoutSeconds]
       properties:
         syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
-        mtlsRequired: { type: boolean }
+        apiKeyConfigured: { type: boolean }
+        apiKeyLastRotatedAt:
+          type: ["string", "null"]
+          format: date-time
+        updateMode: { type: boolean }
+        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
     ServerSettingsInput:
       type: object
-      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, mtlsRequired]
+      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, updateMode, normalCloseTimeoutSeconds, updateModeCloseTimeoutSeconds]
       properties:
         syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
-        mtlsRequired: { type: boolean }
+        updateMode: { type: boolean }
+        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
+    ApiKeyRotation:
+      type: object
+      required: [apiKey, maskedApiKey, rotatedAt]
+      properties:
+        apiKey: { type: string, minLength: 16 }
+        maskedApiKey: { type: string }
+        rotatedAt:
+          type: string
+          format: date-time
     SyncConfig:
       type: object
-      required: [clientId, syncIntervalSeconds, configVersion, policies]
+      required: [clientId, syncIntervalSeconds, configVersion, updateMode, normalCloseTimeoutSeconds, closeOnStartTimeoutSeconds, policies]
       properties:
         clientId: { type: string }
         syncIntervalSeconds: { type: number }
         configVersion: { type: string }
+        updateMode: { type: boolean }
+        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
+        closeOnStartTimeoutSeconds: { type: number, minimum: 1, maximum: 3600 }
         policies:
           type: array
           items: { $ref: "#/components/schemas/SoftwarePolicy" }

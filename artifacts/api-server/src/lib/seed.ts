@@ -1,4 +1,5 @@
 import { db } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   auditEntriesTable,
   clientsTable,
@@ -6,6 +7,7 @@ import {
   softwarePoliciesTable,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { hashPassword } from "../routes/auth";
 
 export async function ensureSeedData(): Promise<void> {
   await db
@@ -15,7 +17,10 @@ export async function ensureSeedData(): Promise<void> {
       syncIntervalSeconds: 300,
       syncPort: 5187,
       adminHttpsEnabled: true,
-      mtlsRequired: true,
+      adminUsername: process.env.NEMESYS_ADMIN_USERNAME ?? "admin",
+      updateMode: false,
+      normalCloseTimeoutSeconds: 30,
+      updateModeCloseTimeoutSeconds: 8,
     })
     .onConflictDoNothing();
 
@@ -54,6 +59,23 @@ export async function ensureSeedData(): Promise<void> {
       },
     ])
     .onConflictDoNothing();
+
+  const [settings] = await db.select({ adminPasswordHash: serverSettingsTable.adminPasswordHash })
+    .from(serverSettingsTable)
+    .where(eq(serverSettingsTable.id, "default"))
+    .limit(1);
+  if (!settings?.adminPasswordHash) {
+    const password = process.env.NEMESYS_ADMIN_PASSWORD ?? "change-me-now";
+    await db.update(serverSettingsTable)
+      .set({
+        adminUsername: process.env.NEMESYS_ADMIN_USERNAME ?? "admin",
+        adminPasswordHash: await hashPassword(password),
+      })
+      .where(eq(serverSettingsTable.id, "default"));
+    if (!process.env.NEMESYS_ADMIN_PASSWORD) {
+      logger.warn("NEMESYS_ADMIN_PASSWORD is not set; replace the local bootstrap password before production use");
+    }
+  }
 
   await db
     .insert(softwarePoliciesTable)

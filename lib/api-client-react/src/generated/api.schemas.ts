@@ -5,8 +5,30 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface ClientEnrollmentInput {
+  address?: string;
+}
+
 export interface HealthStatus {
   status: string;
+}
+
+export interface AuthLoginInput {
+  /** @minLength 1 */
+  username: string;
+  /** @minLength 1 */
+  password: string;
+}
+
+export interface AuthSession {
+  username: string;
+}
+
+export interface AuthPasswordChangeInput {
+  /** @minLength 1 */
+  currentPassword: string;
+  /** @minLength 8 */
+  newPassword: string;
 }
 
 export interface DashboardSummary {
@@ -54,10 +76,24 @@ export interface IniRule {
   expectedValue: string;
 }
 
+export interface ExeCheck {
+  executable: string;
+  targetVersion: string;
+  installCommand?: string;
+}
+
+export interface IniCheck {
+  filePath: string;
+  section: string;
+  key: string;
+  expectedValue: string;
+}
+
 export type SoftwarePolicyRuleType = typeof SoftwarePolicyRuleType[keyof typeof SoftwarePolicyRuleType];
 
 
 export const SoftwarePolicyRuleType = {
+  application: 'application',
   'file-version': 'file-version',
   ini: 'ini',
 } as const;
@@ -68,6 +104,8 @@ export interface SoftwarePolicy {
   executable: string;
   targetVersion: string;
   ruleType: SoftwarePolicyRuleType;
+  exeChecks: ExeCheck[];
+  iniChecks: IniCheck[];
   iniRules: IniRule[];
   /** @minimum 0 */
   graceSeconds: number;
@@ -79,6 +117,7 @@ export type SoftwarePolicyInputRuleType = typeof SoftwarePolicyInputRuleType[key
 
 
 export const SoftwarePolicyInputRuleType = {
+  application: 'application',
   'file-version': 'file-version',
   ini: 'ini',
 } as const;
@@ -86,11 +125,11 @@ export const SoftwarePolicyInputRuleType = {
 export interface SoftwarePolicyInput {
   /** @minLength 1 */
   name: string;
-  /** @minLength 1 */
-  executable: string;
-  /** @minLength 1 */
-  targetVersion: string;
+  executable?: string;
+  targetVersion?: string;
   ruleType: SoftwarePolicyInputRuleType;
+  exeChecks?: ExeCheck[];
+  iniChecks?: IniCheck[];
   iniRules?: IniRule[];
   /**
      * @minimum 0
@@ -138,7 +177,20 @@ export interface ServerSettings {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
-  mtlsRequired: boolean;
+  apiKeyConfigured: boolean;
+  /** @nullable */
+  apiKeyLastRotatedAt: string | null;
+  updateMode: boolean;
+  /**
+     * @minimum 5
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds: number;
 }
 
 export interface ServerSettingsInput {
@@ -153,13 +205,41 @@ export interface ServerSettingsInput {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
-  mtlsRequired: boolean;
+  updateMode: boolean;
+  /**
+     * @minimum 5
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds: number;
+}
+
+export interface ApiKeyRotation {
+  /** @minLength 16 */
+  apiKey: string;
+  maskedApiKey: string;
+  rotatedAt: string;
 }
 
 export interface SyncConfig {
   clientId: string;
   syncIntervalSeconds: number;
   configVersion: string;
+  updateMode: boolean;
+  /**
+     * @minimum 5
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  /**
+     * @minimum 1
+     * @maximum 3600
+     */
+  closeOnStartTimeoutSeconds: number;
   policies: SoftwarePolicy[];
 }
 
@@ -178,6 +258,16 @@ export interface SyncReportInput {
   result: SyncReportInputResult;
   applications: ApplicationReport[];
 }
+
+/**
+ * Shared client API key delivered during silent installation.
+ */
+export type ClientApiKeyParameter = string;
+
+/**
+ * Windows hostname/computer name used as client identity.
+ */
+export type ClientHostnameParameter = string;
 
 export type ListAuditEntriesParams = {
 /**

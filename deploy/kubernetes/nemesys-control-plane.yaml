@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nemesys-runtime
+type: Opaque
+stringData:
+  # Replace these values through your cluster's secret management process.
+  DATABASE_URL: "postgresql://replace-me"
+  SESSION_SECRET: "replace-me"
+  NEMESYS_ADMIN_USERNAME: "admin"
+  NEMESYS_ADMIN_PASSWORD: "replace-me"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemesys-api
+  labels:
+    app: nemesys-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nemesys-api
+  template:
+    metadata:
+      labels:
+        app: nemesys-api
+    spec:
+      containers:
+        - name: api
+          # Publish artifacts/api-server and replace this image reference.
+          image: registry.example.com/nemesys/api-server:replace-me
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          envFrom:
+            - secretRef:
+                name: nemesys-runtime
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemesys-api
+spec:
+  selector:
+    app: nemesys-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nemesys-control-plane
+  annotations:
+    # Choose the annotation set used by the existing cluster ingress controller.
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  tls:
+    - hosts:
+        - nemesys.example.com
+      secretName: nemesys-tls
+  rules:
+    - host: nemesys.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nemesys-api
+                port:
+                  name: http

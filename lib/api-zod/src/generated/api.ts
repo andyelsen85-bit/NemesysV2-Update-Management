@@ -65,6 +65,58 @@ export const RevokeClientResponse = zod.object({
 
 
 /**
+ * @summary Get a client's effective synchronization configuration
+ */
+export const GetClientSyncConfigParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const getClientSyncConfigResponseNormalCloseTimeoutSecondsMin = 5;
+export const getClientSyncConfigResponseNormalCloseTimeoutSecondsMax = 3600;
+
+export const getClientSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
+
+export const getClientSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
+
+
+
+export const GetClientSyncConfigResponse = zod.object({
+  "clientId": zod.string(),
+  "syncIntervalSeconds": zod.number(),
+  "configVersion": zod.string(),
+  "updateMode": zod.boolean(),
+  "normalCloseTimeoutSeconds": zod.number().min(getClientSyncConfigResponseNormalCloseTimeoutSecondsMin).max(getClientSyncConfigResponseNormalCloseTimeoutSecondsMax),
+  "closeOnStartTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponseCloseOnStartTimeoutSecondsMax),
+  "policies": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
+  "iniRules": zod.array(zod.object({
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
+  "graceSeconds": zod.number().min(getClientSyncConfigResponsePoliciesItemGraceSecondsMin),
+  "enabled": zod.boolean(),
+  "lastUpdated": zod.coerce.date()
+}))
+})
+
+
+/**
  * @summary List software update policies
  */
 export const listSoftwareResponseGraceSecondsMin = 0;
@@ -76,7 +128,18 @@ export const ListSoftwareResponseItem = zod.object({
   "name": zod.string(),
   "executable": zod.string(),
   "targetVersion": zod.string(),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -93,8 +156,6 @@ export const ListSoftwareResponse = zod.array(ListSoftwareResponseItem)
  * @summary Create a software update policy
  */
 
-
-
 export const createSoftwareBodyGraceSecondsMin = 0;
 export const createSoftwareBodyGraceSecondsMax = 3600;
 
@@ -102,9 +163,20 @@ export const createSoftwareBodyGraceSecondsMax = 3600;
 
 export const CreateSoftwareBody = zod.object({
   "name": zod.string().min(1),
-  "executable": zod.string().min(1),
-  "targetVersion": zod.string().min(1),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "executable": zod.string().optional(),
+  "targetVersion": zod.string().optional(),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})).optional(),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})).optional(),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -123,7 +195,18 @@ export const CreateSoftwareResponse = zod.object({
   "name": zod.string(),
   "executable": zod.string(),
   "targetVersion": zod.string(),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -143,8 +226,6 @@ export const UpdateSoftwareParams = zod.object({
 })
 
 
-
-
 export const updateSoftwareBodyGraceSecondsMin = 0;
 export const updateSoftwareBodyGraceSecondsMax = 3600;
 
@@ -152,9 +233,20 @@ export const updateSoftwareBodyGraceSecondsMax = 3600;
 
 export const UpdateSoftwareBody = zod.object({
   "name": zod.string().min(1),
-  "executable": zod.string().min(1),
-  "targetVersion": zod.string().min(1),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "executable": zod.string().optional(),
+  "targetVersion": zod.string().optional(),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})).optional(),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})).optional(),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -173,7 +265,18 @@ export const UpdateSoftwareResponse = zod.object({
   "name": zod.string(),
   "executable": zod.string(),
   "targetVersion": zod.string(),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -222,13 +325,22 @@ export const getServerSettingsResponseSyncIntervalSecondsMax = 86400;
 
 export const getServerSettingsResponseSyncPortMax = 65535;
 
+export const getServerSettingsResponseNormalCloseTimeoutSecondsMin = 5;
+export const getServerSettingsResponseNormalCloseTimeoutSecondsMax = 3600;
+
+export const getServerSettingsResponseUpdateModeCloseTimeoutSecondsMax = 300;
+
 
 
 export const GetServerSettingsResponse = zod.object({
   "syncIntervalSeconds": zod.number().min(getServerSettingsResponseSyncIntervalSecondsMin).max(getServerSettingsResponseSyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(getServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
-  "mtlsRequired": zod.boolean()
+  "apiKeyConfigured": zod.boolean(),
+  "apiKeyLastRotatedAt": zod.coerce.date().nullable(),
+  "updateMode": zod.boolean(),
+  "normalCloseTimeoutSeconds": zod.number().min(getServerSettingsResponseNormalCloseTimeoutSecondsMin).max(getServerSettingsResponseNormalCloseTimeoutSecondsMax),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getServerSettingsResponseUpdateModeCloseTimeoutSecondsMax)
 })
 
 
@@ -240,13 +352,20 @@ export const updateServerSettingsBodySyncIntervalSecondsMax = 86400;
 
 export const updateServerSettingsBodySyncPortMax = 65535;
 
+export const updateServerSettingsBodyNormalCloseTimeoutSecondsMin = 5;
+export const updateServerSettingsBodyNormalCloseTimeoutSecondsMax = 3600;
+
+export const updateServerSettingsBodyUpdateModeCloseTimeoutSecondsMax = 300;
+
 
 
 export const UpdateServerSettingsBody = zod.object({
   "syncIntervalSeconds": zod.number().min(updateServerSettingsBodySyncIntervalSecondsMin).max(updateServerSettingsBodySyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(updateServerSettingsBodySyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
-  "mtlsRequired": zod.boolean()
+  "updateMode": zod.boolean(),
+  "normalCloseTimeoutSeconds": zod.number().min(updateServerSettingsBodyNormalCloseTimeoutSecondsMin).max(updateServerSettingsBodyNormalCloseTimeoutSecondsMax),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateServerSettingsBodyUpdateModeCloseTimeoutSecondsMax)
 })
 
 export const updateServerSettingsResponseSyncIntervalSecondsMin = 10;
@@ -254,14 +373,87 @@ export const updateServerSettingsResponseSyncIntervalSecondsMax = 86400;
 
 export const updateServerSettingsResponseSyncPortMax = 65535;
 
+export const updateServerSettingsResponseNormalCloseTimeoutSecondsMin = 5;
+export const updateServerSettingsResponseNormalCloseTimeoutSecondsMax = 3600;
+
+export const updateServerSettingsResponseUpdateModeCloseTimeoutSecondsMax = 300;
+
 
 
 export const UpdateServerSettingsResponse = zod.object({
   "syncIntervalSeconds": zod.number().min(updateServerSettingsResponseSyncIntervalSecondsMin).max(updateServerSettingsResponseSyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(updateServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
-  "mtlsRequired": zod.boolean()
+  "apiKeyConfigured": zod.boolean(),
+  "apiKeyLastRotatedAt": zod.coerce.date().nullable(),
+  "updateMode": zod.boolean(),
+  "normalCloseTimeoutSeconds": zod.number().min(updateServerSettingsResponseNormalCloseTimeoutSecondsMin).max(updateServerSettingsResponseNormalCloseTimeoutSecondsMax),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateServerSettingsResponseUpdateModeCloseTimeoutSecondsMax)
 })
+
+
+/**
+ * Generates a new shared client API key. The plaintext key is returned only in this response so it can be supplied to silent client installation commands.
+ * @summary Rotate the shared client API key
+ */
+export const rotateClientApiKeyResponseApiKeyMin = 16;
+
+
+
+export const RotateClientApiKeyResponse = zod.object({
+  "apiKey": zod.string().min(rotateClientApiKeyResponseApiKeyMin),
+  "maskedApiKey": zod.string(),
+  "rotatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Start an administrator session
+ */
+
+
+
+
+export const LoginBody = zod.object({
+  "username": zod.string().min(1),
+  "password": zod.string().min(1)
+})
+
+export const LoginResponse = zod.object({
+  "username": zod.string()
+})
+
+
+/**
+ * @summary Get the current administrator session
+ */
+export const GetCurrentAdministratorResponse = zod.object({
+  "username": zod.string()
+})
+
+
+/**
+ * @summary Change the administrator password
+ */
+
+export const changeAdministratorPasswordBodyNewPasswordMin = 8;
+
+
+
+export const ChangeAdministratorPasswordBody = zod.object({
+  "currentPassword": zod.string().min(1),
+  "newPassword": zod.string().min(changeAdministratorPasswordBodyNewPasswordMin)
+})
+
+export const ChangeAdministratorPasswordResponse = zod.object({
+  "username": zod.string()
+})
+
+
+/**
+ * @summary End the administrator session
+ */
+export const LogoutResponse = zod.void()
 
 
 /**
@@ -271,6 +463,16 @@ export const GetSyncConfigQueryParams = zod.object({
   "clientId": zod.coerce.string()
 })
 
+export const GetSyncConfigHeader = zod.object({
+  "X-Nemesys-API-Key": zod.string().describe('Shared client API key delivered during silent installation.'),
+  "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
+})
+
+export const getSyncConfigResponseNormalCloseTimeoutSecondsMin = 5;
+export const getSyncConfigResponseNormalCloseTimeoutSecondsMax = 3600;
+
+export const getSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
+
 export const getSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
 
 
@@ -279,12 +481,26 @@ export const GetSyncConfigResponse = zod.object({
   "clientId": zod.string(),
   "syncIntervalSeconds": zod.number(),
   "configVersion": zod.string(),
+  "updateMode": zod.boolean(),
+  "normalCloseTimeoutSeconds": zod.number().min(getSyncConfigResponseNormalCloseTimeoutSecondsMin).max(getSyncConfigResponseNormalCloseTimeoutSecondsMax),
+  "closeOnStartTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponseCloseOnStartTimeoutSecondsMax),
   "policies": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "executable": zod.string(),
   "targetVersion": zod.string(),
-  "ruleType": zod.enum(['file-version', 'ini']),
+  "ruleType": zod.enum(['application', 'file-version', 'ini']),
+  "exeChecks": zod.array(zod.object({
+  "executable": zod.string(),
+  "targetVersion": zod.string(),
+  "installCommand": zod.string().optional()
+})),
+  "iniChecks": zod.array(zod.object({
+  "filePath": zod.string(),
+  "section": zod.string(),
+  "key": zod.string(),
+  "expectedValue": zod.string()
+})),
   "iniRules": zod.array(zod.object({
   "section": zod.string(),
   "key": zod.string(),
@@ -298,8 +514,37 @@ export const GetSyncConfigResponse = zod.object({
 
 
 /**
+ * @summary Enroll or refresh a Windows client by hostname
+ */
+export const EnrollClientHeader = zod.object({
+  "X-Nemesys-API-Key": zod.string().describe('Shared client API key delivered during silent installation.'),
+  "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
+})
+
+export const EnrollClientBody = zod.object({
+  "address": zod.string().optional()
+})
+
+export const EnrollClientResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "hostname": zod.string(),
+  "address": zod.string(),
+  "status": zod.enum(['online', 'stale', 'revoked']),
+  "lastSync": zod.coerce.date().nullable(),
+  "syncVersion": zod.string(),
+  "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
+})
+
+
+/**
  * @summary Submit a client synchronization report
  */
+export const SubmitSyncReportHeader = zod.object({
+  "X-Nemesys-API-Key": zod.string().describe('Shared client API key delivered during silent installation.'),
+  "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
+})
+
 export const SubmitSyncReportBody = zod.object({
   "clientId": zod.string(),
   "clientName": zod.string(),

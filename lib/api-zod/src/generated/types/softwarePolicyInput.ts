@@ -5,17 +5,19 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ExeCheck } from './exeCheck';
+import type { IniCheck } from './iniCheck';
 import type { IniRule } from './iniRule';
 import type { SoftwarePolicyInputRuleType } from './softwarePolicyInputRuleType';
 
 export interface SoftwarePolicyInput {
   /** @minLength 1 */
   name: string;
-  /** @minLength 1 */
-  executable: string;
-  /** @minLength 1 */
-  targetVersion: string;
+  executable?: string;
+  targetVersion?: string;
   ruleType: SoftwarePolicyInputRuleType;
+  exeChecks?: ExeCheck[];
+  iniChecks?: IniCheck[];
   iniRules?: IniRule[];
   /**
      * @minimum 0

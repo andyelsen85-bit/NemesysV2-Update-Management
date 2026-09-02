@@ -6,15 +6,24 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './apiKeyRotation';
 export * from './applicationReport';
 export * from './auditEntry';
 export * from './auditEntryResult';
+export * from './authLoginInput';
+export * from './authPasswordChangeInput';
+export * from './authSession';
 export * from './client';
+export * from './clientApiKeyParameter';
 export * from './clientCertificateStatus';
+export * from './clientEnrollmentInput';
+export * from './clientHostnameParameter';
 export * from './clientStatus';
 export * from './dashboardSummary';
+export * from './exeCheck';
 export * from './getSyncConfigParams';
 export * from './healthStatus';
+export * from './iniCheck';
 export * from './iniRule';
 export * from './listAuditEntriesParams';
 export * from './serverSettings';

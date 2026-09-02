@@ -1,5 +1,6 @@
-import { Router, type IRouter } from "express";
-import { count, desc, eq, gte } from "drizzle-orm";
+import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { and, count, desc, eq, gte } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   auditEntriesTable,
@@ -7,6 +8,8 @@ import {
   serverSettingsTable,
   softwarePoliciesTable,
 } from "@workspace/db";
+import type { SoftwarePolicy as DbSoftwarePolicy } from "@workspace/db";
+import { requireAdmin } from "./auth";
 import {
   CreateSoftwareBody,
   CreateSoftwareResponse,
@@ -20,6 +23,7 @@ import {
   ListSoftwareResponse,
   RevokeClientParams,
   RevokeClientResponse,
+  RotateClientApiKeyResponse,
   SubmitSyncReportBody,
   SubmitSyncReportResponse,
   UpdateServerSettingsBody,
@@ -31,7 +35,58 @@ import {
 
 const router: IRouter = Router();
 
-router.get("/dashboard", async (_req, res): Promise<void> => {
+async function getDefaultSettings() {
+  const [settings] = await db.select().from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
+  return settings;
+}
+
+async function requireClientApiKey(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const settings = await getDefaultSettings();
+  if (!settings?.clientApiKeyHash) {
+    res.status(503).json({ error: "Client API key is not configured" });
+    return;
+  }
+  const provided = req.header("x-nemesys-api-key");
+  if (!provided) {
+    res.status(401).json({ error: "Client API key is required" });
+    return;
+  }
+  const expected = Buffer.from(settings.clientApiKeyHash, "hex");
+  const actual = createHash("sha256").update(provided).digest();
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+    res.status(401).json({ error: "Client API key is invalid" });
+    return;
+  }
+  next();
+}
+
+async function requireHostnameForClient(clientId: string, req: Request, res: Response): Promise<boolean> {
+  const hostname = req.header("x-nemesys-hostname")?.trim();
+  if (!hostname) {
+    res.status(400).json({ error: "X-Nemesys-Hostname header is required" });
+    return false;
+  }
+  const [client] = await db.select({ id: clientsTable.id }).from(clientsTable).where(and(eq(clientsTable.id, clientId), eq(clientsTable.hostname, hostname))).limit(1);
+  if (!client) {
+    res.status(403).json({ error: "Client hostname does not match the enrolled client" });
+    return false;
+  }
+  return true;
+}
+
+function toApiPolicy(policy: DbSoftwarePolicy) {
+  const exeChecks = policy.exeChecks.length > 0
+    ? policy.exeChecks
+    : policy.executable
+      ? [{ executable: policy.executable, targetVersion: policy.targetVersion }]
+      : [];
+  const iniChecks = policy.iniChecks.length > 0
+    ? policy.iniChecks
+    : policy.iniRules.map((rule) => ({ filePath: "", ...rule }));
+  return { ...policy, exeChecks, iniChecks };
+}
+
+router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
   const [clientCount] = await db.select({ value: count() }).from(clientsTable);
   const [onlineCount] = await db.select({ value: count() }).from(clientsTable).where(eq(clientsTable.status, "online"));
   const [softwareCount] = await db.select({ value: count() }).from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
@@ -47,12 +102,12 @@ router.get("/dashboard", async (_req, res): Promise<void> => {
   }));
 });
 
-router.get("/clients", async (_req, res): Promise<void> => {
+router.get("/clients", requireAdmin, async (_req, res): Promise<void> => {
   const clients = await db.select().from(clientsTable).orderBy(desc(clientsTable.lastSync));
   res.json(ListClientsResponse.parse(clients));
 });
 
-router.post("/clients/:id/revoke", async (req, res): Promise<void> => {
+router.post("/clients/:id/revoke", requireAdmin, async (req, res): Promise<void> => {
   const params = RevokeClientParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -71,27 +126,70 @@ router.post("/clients/:id/revoke", async (req, res): Promise<void> => {
   res.json(RevokeClientResponse.parse(client));
 });
 
-router.get("/software", async (_req, res): Promise<void> => {
-  const policies = await db.select().from(softwarePoliciesTable).orderBy(desc(softwarePoliciesTable.lastUpdated));
-  res.json(ListSoftwareResponse.parse(policies));
+async function sendSyncConfig(clientId: string, res: Response): Promise<void> {
+  const settings = await getDefaultSettings();
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  const [client] = await db.select({ id: clientsTable.id }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+  if (!client) {
+    res.status(404).json({ error: "Client not found" });
+    return;
+  }
+  const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
+  res.json(GetSyncConfigResponse.parse({
+    clientId,
+    syncIntervalSeconds: settings.syncIntervalSeconds,
+    configVersion: `${settings.updateMode ? "update" : "normal"}-${settings.syncIntervalSeconds}-${settings.normalCloseTimeoutSeconds}-${settings.updateModeCloseTimeoutSeconds}`,
+    updateMode: settings.updateMode,
+    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
+    closeOnStartTimeoutSeconds: settings.updateMode ? settings.updateModeCloseTimeoutSeconds : settings.normalCloseTimeoutSeconds,
+    policies: policies.map(toApiPolicy),
+  }));
+}
+
+router.get("/clients/:id/sync-config", requireAdmin, async (req, res): Promise<void> => {
+  const params = RevokeClientParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  await sendSyncConfig(params.data.id, res);
 });
 
-router.post("/software", async (req, res): Promise<void> => {
+router.get("/software", requireAdmin, async (_req, res): Promise<void> => {
+  const policies = await db.select().from(softwarePoliciesTable).orderBy(desc(softwarePoliciesTable.lastUpdated));
+  res.json(ListSoftwareResponse.parse(policies.map(toApiPolicy)));
+});
+
+router.post("/software", requireAdmin, async (req, res): Promise<void> => {
   const parsed = CreateSoftwareBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
 
+  const exeChecks = parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
+    ? [{ executable: parsed.data.executable, targetVersion: parsed.data.targetVersion }]
+    : []);
+  const iniChecks = parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule }));
   const [policy] = await db.insert(softwarePoliciesTable).values({
     id: `policy-${crypto.randomUUID()}`,
-    ...parsed.data,
-    iniRules: parsed.data.iniRules ?? [],
+    name: parsed.data.name,
+    executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
+    targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
+    ruleType: parsed.data.ruleType,
+    exeChecks,
+    iniChecks,
+    iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+    graceSeconds: parsed.data.graceSeconds,
+    enabled: parsed.data.enabled,
   }).returning();
-  res.status(201).json(CreateSoftwareResponse.parse(policy));
+  res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy(policy)));
 });
 
-router.patch("/software/:id", async (req, res): Promise<void> => {
+router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
   const params = UpdateSoftwareParams.safeParse(req.params);
   const parsed = UpdateSoftwareBody.safeParse(req.body);
   if (!params.success) {
@@ -103,19 +201,34 @@ router.patch("/software/:id", async (req, res): Promise<void> => {
     return;
   }
 
+  const exeChecks = parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
+    ? [{ executable: parsed.data.executable, targetVersion: parsed.data.targetVersion }]
+    : []);
+  const iniChecks = parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule }));
   const [policy] = await db
     .update(softwarePoliciesTable)
-    .set({ ...parsed.data, iniRules: parsed.data.iniRules ?? [], lastUpdated: new Date() })
+    .set({
+      name: parsed.data.name,
+      executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
+      targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
+      ruleType: parsed.data.ruleType,
+      exeChecks,
+      iniChecks,
+      iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+      graceSeconds: parsed.data.graceSeconds,
+      enabled: parsed.data.enabled,
+      lastUpdated: new Date(),
+    })
     .where(eq(softwarePoliciesTable.id, params.data.id))
     .returning();
   if (!policy) {
     res.status(404).json({ error: "Software policy not found" });
     return;
   }
-  res.json(UpdateSoftwareResponse.parse(policy));
+  res.json(UpdateSoftwareResponse.parse(toApiPolicy(policy)));
 });
 
-router.get("/audit", async (req, res): Promise<void> => {
+router.get("/audit", requireAdmin, async (req, res): Promise<void> => {
   const parsed = ListAuditEntriesQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -125,43 +238,125 @@ router.get("/audit", async (req, res): Promise<void> => {
   res.json(ListAuditEntriesResponse.parse(entries));
 });
 
-router.get("/settings", async (_req, res): Promise<void> => {
-  const [settings] = await db.select().from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  res.json(GetServerSettingsResponse.parse(settings));
+router.get("/settings", requireAdmin, async (_req, res): Promise<void> => {
+  const settings = await getDefaultSettings();
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  res.json(GetServerSettingsResponse.parse({
+    syncIntervalSeconds: settings.syncIntervalSeconds,
+    syncPort: settings.syncPort,
+    adminHttpsEnabled: settings.adminHttpsEnabled,
+    apiKeyConfigured: Boolean(settings.clientApiKeyHash),
+    apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
+    updateMode: settings.updateMode,
+    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
+    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
+  }));
 });
 
-router.patch("/settings", async (req, res): Promise<void> => {
+router.patch("/settings", requireAdmin, async (req, res): Promise<void> => {
   const parsed = UpdateServerSettingsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const [settings] = await db.update(serverSettingsTable).set(parsed.data).where(eq(serverSettingsTable.id, "default")).returning();
-  res.json(UpdateServerSettingsResponse.parse(settings));
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  res.json(UpdateServerSettingsResponse.parse({
+    syncIntervalSeconds: settings.syncIntervalSeconds,
+    syncPort: settings.syncPort,
+    adminHttpsEnabled: settings.adminHttpsEnabled,
+    apiKeyConfigured: Boolean(settings.clientApiKeyHash),
+    apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
+    updateMode: settings.updateMode,
+    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
+    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
+  }));
 });
 
-router.get("/sync/config", async (req, res): Promise<void> => {
+router.post("/settings/api-key/rotate", requireAdmin, async (_req, res): Promise<void> => {
+  const apiKey = `nk_live_${randomBytes(24).toString("hex")}`;
+  const rotatedAt = new Date();
+  const [settings] = await db
+    .update(serverSettingsTable)
+    .set({
+      clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+      apiKeyLastRotatedAt: rotatedAt,
+    })
+    .where(eq(serverSettingsTable.id, "default"))
+    .returning();
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  res.json(RotateClientApiKeyResponse.parse({
+    apiKey,
+    maskedApiKey: `${apiKey.slice(0, 11)}••••••••${apiKey.slice(-4)}`,
+    rotatedAt,
+  }));
+});
+
+router.get("/sync/config", requireClientApiKey, async (req, res): Promise<void> => {
   const parsed = GetSyncConfigQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [settings] = await db.select().from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
-  res.json(GetSyncConfigResponse.parse({
-    clientId: parsed.data.clientId,
-    syncIntervalSeconds: settings.syncIntervalSeconds,
-    configVersion: settings.syncIntervalSeconds.toString(),
-    policies,
-  }));
+  if (!await requireHostnameForClient(parsed.data.clientId, req, res)) return;
+  await sendSyncConfig(parsed.data.clientId, res);
 });
 
-router.post("/sync/report", async (req, res): Promise<void> => {
+router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void> => {
+  const hostname = req.header("x-nemesys-hostname")?.trim();
+  if (!hostname) {
+    res.status(400).json({ error: "X-Nemesys-Hostname header is required" });
+    return;
+  }
+  const address = req.body?.address;
+  if (address !== undefined && typeof address !== "string") {
+    res.status(400).json({ error: "address must be a string" });
+    return;
+  }
+  const id = `host-${createHash("sha256").update(hostname.toLowerCase()).digest("hex").slice(0, 16)}`;
+  const now = new Date();
+  const [client] = await db
+    .insert(clientsTable)
+    .values({
+      id,
+      name: hostname,
+      hostname,
+      address: address ?? req.ip ?? "unknown",
+      status: "online",
+      lastSync: now,
+      syncVersion: "1.0.0",
+      certificateStatus: "valid",
+    })
+    .onConflictDoUpdate({
+      target: clientsTable.id,
+      set: {
+        name: hostname,
+        hostname,
+        address: address ?? req.ip ?? "unknown",
+        status: "online",
+        lastSync: now,
+      },
+    })
+    .returning();
+  res.json(client);
+});
+
+router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void> => {
   const parsed = SubmitSyncReportBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  if (!await requireHostnameForClient(parsed.data.clientId, req, res)) return;
   const now = new Date();
   const [entry] = await db.insert(auditEntriesTable).values({
     id: `audit-${crypto.randomUUID()}`,
