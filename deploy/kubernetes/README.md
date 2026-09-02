@@ -34,7 +34,6 @@ Before applying the test overlay:
 ```bash
 kubectl apply -k deploy/kubernetes/overlays/test
 kubectl -n nemesys rollout status deployment/pg-deployment
-kubectl -n nemesys rollout status deployment/nemesys-deployment
 ```
 
 If the cluster cannot pull from Docker Hub, mirror the PostgreSQL image into
@@ -46,22 +45,30 @@ docker tag postgres:16-alpine nexus.example.com:8083/postgres:16-alpine
 docker push nexus.example.com:8083/postgres:16-alpine
 ```
 
-The test API connects to PostgreSQL through the internal `pg` Service. Apply the
-schema after PostgreSQL is ready and before rolling out an API image that expects
-new columns. For the client poll timestamps, run the included idempotent
-migration:
+The test API connects to PostgreSQL through the internal `pg` Service. After
+PostgreSQL is ready, apply the idempotent bootstrap and incremental migrations
+before waiting for the API rollout. The bootstrap is safe to repeat and creates
+all tables when the database is new:
 
 ```bash
 kubectl -n nemesys exec -i deployment/pg-deployment -- \
-  psql -U nemesys -d nemesys \
+  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
+  < deploy/kubernetes/migrations/000-initial-schema.sql
+
+kubectl -n nemesys exec -i deployment/pg-deployment -- \
+  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
   < deploy/kubernetes/migrations/001-client-sync-timestamps.sql
 
 kubectl -n nemesys exec -i deployment/pg-deployment -- \
-  psql -U nemesys -d nemesys \
+  psql -v ON_ERROR_STOP=1 -U nemesys -d nemesys \
   < deploy/kubernetes/migrations/002-software-policy-postpone.sql
+
+kubectl -n nemesys rollout restart deployment/nemesys-deployment
+kubectl -n nemesys rollout status deployment/nemesys-deployment
 ```
 
-Use the full Drizzle schema push when provisioning a new empty database:
+For a database reachable from a trusted administration environment, the full
+Drizzle schema push remains an alternative provisioning method:
 
 ```bash
 DATABASE_URL='postgresql://...' pnpm --filter @workspace/db run push
