@@ -35,7 +35,11 @@ and INI section/key/value checks, and sends labelled audit summaries for every
 configured check. Missing files, unavailable EXE versions, missing INI values, and
 unconfigured expected values are explicitly reported.
 
-When a noncompliant application must be closed, the LocalSystem service creates a
+When a policy is noncompliant, the service first checks whether any configured
+supervised, legacy, or version-check executable is currently running. If none is
+running, it skips the user warning and process closure, runs any applicable
+silent update command, and checks again on a later poll. When a noncompliant
+application is running and must be closed, the LocalSystem service creates a
 service-owned, ACL-protected named pipe and launches a short-lived
 `--session-companion` in the active user's `winsta0\default` desktop using the
 user session token. The service verifies that the connected companion is an

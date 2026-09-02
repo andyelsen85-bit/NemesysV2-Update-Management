@@ -118,6 +118,27 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         {
             foreach (var item in nonCompliantPolicies)
             {
+                var processState = GetManagedProcessState(item.Policy);
+                if (processState == ManagedProcessState.Unknown)
+                {
+                    logger.LogWarning(
+                        "Unable to determine whether a managed process is running for {ApplicationName}; skipping warning, closure, and installation",
+                        item.Policy.Name);
+                    syncEtag = null;
+                    continue;
+                }
+                if (processState == ManagedProcessState.NotRunning)
+                {
+                    logger.LogInformation(
+                        "No managed process is running for {ApplicationName}; skipping the warning and process closure",
+                        item.Policy.Name);
+                    RunSilentInstallCommands(new[] { item.Policy });
+                    // Re-evaluate on the next poll so a process started later is
+                    // detected even when the server configuration is unchanged.
+                    syncEtag = null;
+                    continue;
+                }
+
                 var timeout = item.Policy.UpdateMode
                     ? Math.Max(1, item.Policy.UpdateModeCloseTimeoutSeconds)
                     : Math.Max(5, sync.NormalCloseTimeoutSeconds);
@@ -212,12 +233,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
     private bool CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
     {
-        var processNames = policies
-            .SelectMany(policy => policy.SupervisedExecutables.Concat(policy.ExeChecks.Select(check => check.Executable)))
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        var processNames = GetManagedProcessNames(policies);
         var closureSucceeded = true;
         foreach (var processName in processNames)
         {
@@ -297,6 +313,70 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
         logger.LogInformation("Managed process closure completed; no configured processes remain");
         return true;
+    }
+
+    private ManagedProcessState GetManagedProcessState(SoftwarePolicy policy)
+    {
+        var processNames = GetManagedProcessNames(new[] { policy });
+        if (processNames.Count == 0)
+        {
+            logger.LogInformation(
+                "No managed process names are configured for {ApplicationName}",
+                policy.Name);
+            return ManagedProcessState.NotRunning;
+        }
+
+        foreach (var processName in processNames)
+        {
+            Process[] processes;
+            try
+            {
+                processes = Process.GetProcessesByName(processName);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(
+                    exception,
+                    "Unable to enumerate managed process {ProcessName} for {ApplicationName}",
+                    processName,
+                    policy.Name);
+                return ManagedProcessState.Unknown;
+            }
+
+            try
+            {
+                if (processes.Length == 0) continue;
+                logger.LogInformation(
+                    "Detected managed process {ProcessName} for {ApplicationName}: {ProcessIds}",
+                    processName,
+                    policy.Name,
+                    string.Join(", ", processes.Select(process => process.Id)));
+                return ManagedProcessState.Running;
+            }
+            finally
+            {
+                foreach (var process in processes) process.Dispose();
+            }
+        }
+
+        logger.LogInformation(
+            "No running process matched {ApplicationName}; configured process names: {ProcessNames}",
+            policy.Name,
+            string.Join(", ", processNames));
+        return ManagedProcessState.NotRunning;
+    }
+
+    private static List<string> GetManagedProcessNames(IEnumerable<SoftwarePolicy> policies)
+    {
+        return policies
+            .SelectMany(policy => policy.SupervisedExecutables
+                .Concat(policy.ExeChecks.Select(check => check.Executable))
+                .Append(policy.Executable))
+            .Select(Path.GetFileNameWithoutExtension)
+            .Where(name => !string.IsNullOrWhiteSpace(name) && name != "-")
+            .Select(name => name!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private void RunSilentInstallCommands(IEnumerable<SoftwarePolicy> policies)
@@ -559,6 +639,7 @@ internal static class SessionWarningChannel
 }
 
 internal enum WarningOutcome { Proceed, Postpone, CompanionUnavailable }
+internal enum ManagedProcessState { Running, NotRunning, Unknown }
 
 internal static class SessionCompanionLauncher
 {
