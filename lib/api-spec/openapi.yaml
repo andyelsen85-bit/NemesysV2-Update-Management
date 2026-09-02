@@ -643,7 +643,7 @@ components:
         expectedValue: { type: string }
     SoftwarePolicy:
       type: object
-      required: [id, name, executable, targetVersion, ruleType, supervisedExecutables, exeChecks, iniChecks, iniRules, graceSeconds, enabled, lastUpdated]
+      required: [id, name, executable, targetVersion, ruleType, supervisedExecutables, exeChecks, iniChecks, iniRules, graceSeconds, allowPostpone, enabled, lastUpdated]
       properties:
         id: { type: string }
         name: { type: string }
@@ -668,6 +668,9 @@ components:
         graceSeconds: { type: number, minimum: 0 }
         updateMode: { type: boolean }
         updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
+        allowPostpone:
+          type: boolean
+          description: Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.
         enabled: { type: boolean }
         lastUpdated:
           type: string
@@ -698,6 +701,10 @@ components:
         graceSeconds: { type: number, minimum: 0, maximum: 3600 }
         updateMode: { type: boolean }
         updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
+        allowPostpone:
+          type: boolean
+          default: false
+          description: Show a Postpone action in the Windows close-warning dialog for this application.
         enabled: { type: boolean }
     AuditEntry:
       type: object

@@ -121,6 +121,8 @@ export interface SoftwarePolicy {
      * @maximum 300
      */
   updateModeCloseTimeoutSeconds?: number;
+  /** Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization. */
+  allowPostpone: boolean;
   enabled: boolean;
   lastUpdated: string;
 }
@@ -156,6 +158,8 @@ export interface SoftwarePolicyInput {
      * @maximum 300
      */
   updateModeCloseTimeoutSeconds?: number;
+  /** Show a Postpone action in the Windows close-warning dialog for this application. */
+  allowPostpone?: boolean;
   enabled: boolean;
 }
 

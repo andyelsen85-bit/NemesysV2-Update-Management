@@ -32,5 +32,7 @@ export interface SoftwarePolicyInput {
      * @maximum 300
      */
   updateModeCloseTimeoutSeconds?: number;
+  /** Show a Postpone action in the Windows close-warning dialog for this application. */
+  allowPostpone?: boolean;
   enabled: boolean;
 }

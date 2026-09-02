@@ -28,6 +28,7 @@ export const softwarePoliciesTable = pgTable("nemesys_software_policies", {
   graceSeconds: integer("grace_seconds").notNull().default(30),
   updateMode: boolean("update_mode").notNull().default(false),
   updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
+  allowPostpone: boolean("allow_postpone").notNull().default(false),
   enabled: boolean("enabled").notNull().default(true),
   lastUpdated: timestamp("last_updated", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -119,6 +119,7 @@ export const GetClientSyncConfigResponse = zod.object({
   "graceSeconds": zod.number().min(getClientSyncConfigResponsePoliciesItemGraceSecondsMin),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))
@@ -160,6 +161,7 @@ export const ListSoftwareResponseItem = zod.object({
   "graceSeconds": zod.number().min(listSoftwareResponseGraceSecondsMin),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(listSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -175,7 +177,7 @@ export const createSoftwareBodyGraceSecondsMax = 3600;
 
 export const createSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const createSoftwareBodyAllowPostponeDefault = false;
 
 export const CreateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -202,6 +204,7 @@ export const CreateSoftwareBody = zod.object({
   "graceSeconds": zod.number().min(createSoftwareBodyGraceSecondsMin).max(createSoftwareBodyGraceSecondsMax),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().default(createSoftwareBodyAllowPostponeDefault).describe('Show a Postpone action in the Windows close-warning dialog for this application.'),
   "enabled": zod.boolean()
 })
 
@@ -237,6 +240,7 @@ export const CreateSoftwareResponse = zod.object({
   "graceSeconds": zod.number().min(createSoftwareResponseGraceSecondsMin),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -255,7 +259,7 @@ export const updateSoftwareBodyGraceSecondsMax = 3600;
 
 export const updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const updateSoftwareBodyAllowPostponeDefault = false;
 
 export const UpdateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -282,6 +286,7 @@ export const UpdateSoftwareBody = zod.object({
   "graceSeconds": zod.number().min(updateSoftwareBodyGraceSecondsMin).max(updateSoftwareBodyGraceSecondsMax),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().default(updateSoftwareBodyAllowPostponeDefault).describe('Show a Postpone action in the Windows close-warning dialog for this application.'),
   "enabled": zod.boolean()
 })
 
@@ -317,6 +322,7 @@ export const UpdateSoftwareResponse = zod.object({
   "graceSeconds": zod.number().min(updateSoftwareResponseGraceSecondsMin),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -769,6 +775,7 @@ export const GetSyncConfigResponse = zod.object({
   "graceSeconds": zod.number().min(getSyncConfigResponsePoliciesItemGraceSecondsMin),
   "updateMode": zod.boolean().optional(),
   "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
+  "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))

@@ -1,0 +1,10 @@
+---
+name: Windows companion IPC
+description: Security boundary for communication between the LocalSystem client service and the interactive warning companion.
+---
+
+The LocalSystem service must create the first named-pipe instance with an explicit ACL. It may trust a warning response only after confirming the client is authenticated, runs in an interactive session, and is the installed NemesysV2 executable. The companion connects with identification-only impersonation.
+
+**Why:** If LocalSystem connects as a client to a user-owned or globally named pipe, a squatting server can impersonate the service. A broad authenticated-user ACL without process/session verification also lets unrelated local processes forge allowed postpone responses indefinitely.
+
+**How to apply:** Preserve service-owned IPC, first-instance protection, policy gating, bounded response deadlines, and companion process/session validation whenever warning-dialog messages or responses change.

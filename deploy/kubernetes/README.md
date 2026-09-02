@@ -55,6 +55,10 @@ migration:
 kubectl -n nemesys exec -i deployment/pg-deployment -- \
   psql -U nemesys -d nemesys \
   < deploy/kubernetes/migrations/001-client-sync-timestamps.sql
+
+kubectl -n nemesys exec -i deployment/pg-deployment -- \
+  psql -U nemesys -d nemesys \
+  < deploy/kubernetes/migrations/002-software-policy-postpone.sql
 ```
 
 Use the full Drizzle schema push when provisioning a new empty database:

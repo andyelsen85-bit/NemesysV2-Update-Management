@@ -2,6 +2,9 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -97,11 +100,17 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 var timeout = item.Policy.UpdateMode
                     ? Math.Max(1, item.Policy.UpdateModeCloseTimeoutSeconds)
                     : Math.Max(5, sync.NormalCloseTimeoutSeconds);
-                await SessionWarningChannel.SendAsync(
-                    $"{item.Policy.Name} will close in {timeout} seconds for its controlled update.",
+                var postponed = await SessionWarningChannel.ShowAsync(
+                    item.Policy.Name,
                     timeout,
+                    item.Policy.AllowPostpone,
                     cancellationToken);
-                await Task.Delay(TimeSpan.FromSeconds(timeout), cancellationToken);
+                if (postponed)
+                {
+                    logger.LogInformation("User postponed the controlled update for {ApplicationName}", item.Policy.Name);
+                    syncEtag = null;
+                    continue;
+                }
                 CloseManagedProcesses(new[] { item.Policy });
                 RunSilentInstallCommands(new[] { item.Policy });
             }
@@ -223,16 +232,110 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
 internal static class SessionWarningChannel
 {
-    public static async Task SendAsync(string message, int seconds, CancellationToken cancellationToken)
+    public static async Task<bool> ShowAsync(string applicationName, int seconds, bool allowPostpone, CancellationToken cancellationToken)
     {
+        var startedAt = Stopwatch.GetTimestamp();
+        using var exchangeCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        exchangeCancellation.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, seconds) + 5));
         try
         {
-            await using var pipe = new NamedPipeClientStream(".", "NemesysV2.UserSession", PipeDirection.Out, PipeOptions.Asynchronous);
-            await pipe.ConnectAsync(1000, cancellationToken);
-            await JsonSerializer.SerializeAsync(pipe, new WarningMessage(message, seconds), JsonOptions.Default, cancellationToken);
+            await using var pipe = CreateServer();
+            using var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(exchangeCancellation.Token);
+            connectionCancellation.CancelAfter(TimeSpan.FromSeconds(1));
+            await pipe.WaitForConnectionAsync(connectionCancellation.Token);
+            var isAuthenticatedUser = false;
+            pipe.RunAsClient(() =>
+            {
+                using var identity = WindowsIdentity.GetCurrent();
+                isAuthenticatedUser = identity.IsAuthenticated && identity.User is not null &&
+                    !identity.User.IsWellKnown(WellKnownSidType.AnonymousSid);
+            });
+            if (!isAuthenticatedUser || !IsExpectedSessionCompanion(pipe))
+                throw new UnauthorizedAccessException("The pipe client is not the installed NemesysV2 session companion.");
+            await JsonSerializer.SerializeAsync(pipe, new WarningMessage(applicationName, seconds, allowPostpone), JsonOptions.Default, exchangeCancellation.Token);
+            await pipe.FlushAsync(exchangeCancellation.Token);
+            var response = await JsonSerializer.DeserializeAsync<WarningResponse>(pipe, JsonOptions.Default, exchangeCancellation.Token);
+            return allowPostpone && response?.Postponed == true;
         }
-        catch (TimeoutException) { }
-        catch (IOException) { }
+        catch (TimeoutException)
+        {
+            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
+            return false;
+        }
+        catch (IOException)
+        {
+            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
+            return false;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            await WaitForRemainingWarningTimeAsync(startedAt, seconds, cancellationToken);
+            return false;
+        }
+    }
+
+    private static NamedPipeServerStream CreateServer()
+    {
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        security.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+            PipeAccessRights.ReadWrite,
+            AccessControlType.Allow));
+        return NamedPipeServerStreamAcl.Create(
+            "NemesysV2.UserSession",
+                PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance,
+            0,
+            0,
+            security);
+    }
+
+    private static bool IsExpectedSessionCompanion(NamedPipeServerStream pipe)
+    {
+        if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(), out var processId) ||
+            processId > int.MaxValue)
+            return false;
+
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            var expectedPath = Environment.ProcessPath;
+            var actualPath = process.MainModule?.FileName;
+            return process.SessionId != 0 &&
+                !string.IsNullOrWhiteSpace(expectedPath) &&
+                !string.IsNullOrWhiteSpace(actualPath) &&
+                Path.GetFullPath(actualPath).Equals(Path.GetFullPath(expectedPath), StringComparison.OrdinalIgnoreCase);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeClientProcessId(IntPtr pipeHandle, out uint clientProcessId);
+
+    private static async Task WaitForRemainingWarningTimeAsync(long startedAt, int seconds, CancellationToken cancellationToken)
+    {
+        var remaining = TimeSpan.FromSeconds(Math.Max(1, seconds)) - Stopwatch.GetElapsedTime(startedAt);
+        if (remaining > TimeSpan.Zero)
+            await Task.Delay(remaining, cancellationToken);
     }
 }
 
@@ -242,36 +345,123 @@ internal sealed class SessionCompanion
     {
         while (true)
         {
-            await using var pipe = new NamedPipeServerStream("NemesysV2.UserSession", PipeDirection.In, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-            await pipe.WaitForConnectionAsync();
+            await using var pipe = new NamedPipeClientStream(
+                ".",
+                "NemesysV2.UserSession",
+                PipeDirection.InOut,
+                PipeOptions.Asynchronous,
+                TokenImpersonationLevel.Identification);
+            try
+            {
+                await pipe.ConnectAsync();
+            }
+            catch (IOException)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1));
+                continue;
+            }
             var warning = await JsonSerializer.DeserializeAsync<WarningMessage>(pipe, JsonOptions.Default);
             if (warning is null) continue;
 
             using var form = new Form
             {
-                Width = 520,
-                Height = 170,
+                Width = 600,
+                Height = 270,
                 Text = "NemesysV2 update notice",
                 StartPosition = FormStartPosition.CenterScreen,
                 TopMost = true,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ControlBox = false,
+                BackColor = Color.White,
             };
-            var label = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("Segoe UI", 12), Text = warning.Message };
-            form.Controls.Add(label);
+            var title = new Label
+            {
+                AutoSize = false,
+                Left = 28,
+                Top = 24,
+                Width = 530,
+                Height = 32,
+                Font = new Font("Segoe UI Semibold", 16),
+                Text = $"{warning.ApplicationName} needs to close",
+            };
+            var detail = new Label
+            {
+                AutoSize = false,
+                Left = 30,
+                Top = 64,
+                Width = 525,
+                Height = 60,
+                Font = new Font("Segoe UI", 10),
+                ForeColor = Color.FromArgb(75, 85, 99),
+                Text = "Maintenance is running\r\nPlease save your work. The application will close automatically so maintenance can continue.",
+            };
+            var countdown = new Label
+            {
+                AutoSize = false,
+                Left = 30,
+                Top = 132,
+                Width = 525,
+                Height = 28,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI Semibold", 10),
+                ForeColor = Color.FromArgb(153, 96, 0),
+            };
+            var closeButton = new Button
+            {
+                Width = 170,
+                Height = 36,
+                Left = 382,
+                Top = 184,
+                Text = "Close application now",
+                Font = new Font("Segoe UI Semibold", 9),
+                BackColor = Color.FromArgb(8, 118, 71),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+            };
+            closeButton.FlatAppearance.BorderSize = 0;
+            var postponed = false;
+            closeButton.Click += (_, _) => form.Close();
+            form.Controls.AddRange(new Control[] { title, detail, countdown, closeButton });
+            if (warning.AllowPostpone)
+            {
+                var postponeButton = new Button
+                {
+                    Width = 130,
+                    Height = 36,
+                    Left = 242,
+                    Top = 184,
+                    Text = "Postpone",
+                    Font = new Font("Segoe UI Semibold", 9),
+                    FlatStyle = FlatStyle.System,
+                };
+                postponeButton.Click += (_, _) =>
+                {
+                    postponed = true;
+                    form.Close();
+                };
+                form.Controls.Add(postponeButton);
+            }
             using var timer = new System.Windows.Forms.Timer { Interval = 1000 };
             var remaining = warning.Seconds;
+            countdown.Text = $"Closing in 00:{remaining:00}";
             timer.Tick += (_, _) =>
             {
                 remaining--;
-                label.Text = $"{warning.Message}\r\n\r\n{remaining} seconds remaining";
+                countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
                 if (remaining <= 0) { timer.Stop(); form.Close(); }
             };
             timer.Start();
             Application.Run(form);
+            await JsonSerializer.SerializeAsync(pipe, new WarningResponse(postponed), JsonOptions.Default);
+            await pipe.FlushAsync();
         }
     }
 }
 
-internal sealed record WarningMessage(string Message, int Seconds);
+internal sealed record WarningMessage(string ApplicationName, int Seconds, bool AllowPostpone);
+internal sealed record WarningResponse(bool Postponed);
 internal sealed record ClientResponse(string Id);
 internal sealed record SyncPollResult(SyncConfig Config, bool Modified);
 internal sealed record SyncConfig(
@@ -291,7 +481,8 @@ internal sealed record SoftwarePolicy(
     List<ExeCheck> ExeChecks,
     List<IniCheck> IniChecks,
     bool UpdateMode,
-    int UpdateModeCloseTimeoutSeconds);
+    int UpdateModeCloseTimeoutSeconds,
+    bool AllowPostpone);
 internal sealed record ExeCheck(string Executable, string TargetVersion, string? InstallCommand);
 internal sealed record IniCheck(string FilePath, string Section, string Key, string ExpectedValue);
 internal sealed record ApplicationResult(

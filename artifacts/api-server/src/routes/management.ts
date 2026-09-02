@@ -258,6 +258,7 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     graceSeconds: parsed.data.graceSeconds,
     updateMode: parsed.data.updateMode ?? false,
     updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
+    allowPostpone: parsed.data.allowPostpone ?? false,
     enabled: parsed.data.enabled,
   }).returning();
   res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy(policy)));
@@ -293,6 +294,7 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
       graceSeconds: parsed.data.graceSeconds,
       updateMode: parsed.data.updateMode ?? false,
       updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
+      allowPostpone: parsed.data.allowPostpone ?? false,
       enabled: parsed.data.enabled,
       lastUpdated: new Date(),
     })
