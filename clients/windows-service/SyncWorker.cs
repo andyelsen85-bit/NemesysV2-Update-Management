@@ -20,6 +20,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     // self-signed, private-CA issued, expired, or hostname-mismatched. API-key
     // authentication still protects every synchronization request.
     private readonly HttpClient http = CreateHttpClient();
+    private readonly Dictionary<string, bool> lastReportedCompliance = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, EnforcementState> enforcementStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object enforcementLock = new();
     private string? clientId;
     private string? syncEtag;
     private SyncConfig? cachedSyncConfig;
@@ -31,7 +34,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             ServerCertificateCustomValidationCallback =
                 HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
         };
-        return new HttpClient(handler);
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -48,13 +51,18 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var scanStarted = Stopwatch.GetTimestamp();
+            var evaluationStarted = false;
             try
             {
                 clientId ??= await EnrollAsync(stoppingToken);
                 var poll = await GetSyncConfigAsync(clientId, stoppingToken);
-                if (poll.Modified)
-                    await EvaluateAndReportAsync(poll.Config, stoppingToken);
-                await Task.Delay(GetPollDelay(poll.Config.SyncIntervalSeconds), stoppingToken);
+                evaluationStarted = true;
+                await EvaluateAndReportAsync(poll.Config, poll.Modified, stoppingToken);
+                await DelayUntilNextScanAsync(
+                    scanStarted,
+                    GetPollDelay(poll.Config.SyncIntervalSeconds),
+                    stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -67,7 +75,25 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                     "NemesysV2 synchronization failed; retrying against {Server}:{Port}",
                     configuration.Server,
                     configuration.Port);
-                await Task.Delay(TimeSpan.FromSeconds(30 + Random.Shared.Next(0, 16)), stoppingToken);
+                if (!evaluationStarted && cachedSyncConfig is not null)
+                {
+                    try
+                    {
+                        logger.LogWarning(
+                            "Using the cached synchronization configuration to continue local process monitoring");
+                        await EvaluateAndReportAsync(cachedSyncConfig, false, stoppingToken);
+                    }
+                    catch (Exception cachedEvaluationException)
+                    {
+                        logger.LogError(
+                            cachedEvaluationException,
+                            "Cached policy monitoring completed with a reporting or enforcement error");
+                    }
+                }
+                await DelayUntilNextScanAsync(
+                    scanStarted,
+                    GetPollDelay(cachedSyncConfig?.SyncIntervalSeconds ?? 30),
+                    stoppingToken);
             }
         }
     }
@@ -107,77 +133,31 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return new SyncPollResult(sync, true);
     }
 
-    private async Task EvaluateAndReportAsync(SyncConfig sync, CancellationToken cancellationToken)
+    private async Task EvaluateAndReportAsync(
+        SyncConfig sync,
+        bool configurationChanged,
+        CancellationToken cancellationToken)
     {
         var results = sync.Policies.Select(policy => (Policy: policy, Result: EvaluatePolicy(policy))).ToList();
         var nonCompliantPolicies = results.Where(item => !item.Result.Compliant).ToList();
+        var complianceChanged = results.Any(item =>
+            !lastReportedCompliance.TryGetValue(item.Policy.Id, out var lastCompliant) ||
+            lastCompliant != item.Result.Compliant);
+        var shouldReport = configurationChanged || complianceChanged;
         logger.LogInformation(
             "Evaluated {PolicyCount} policies for {Hostname}; {NonCompliantCount} require attention",
             results.Count, configuration.Hostname, nonCompliantPolicies.Count);
+        foreach (var item in results)
+        {
+            ScheduleEnforcement(item.Policy, item.Result.Compliant, sync, cancellationToken);
+        }
+
         if (nonCompliantPolicies.Count > 0)
         {
-            foreach (var item in nonCompliantPolicies)
-            {
-                var processState = GetManagedProcessState(item.Policy);
-                if (processState == ManagedProcessState.Unknown)
-                {
-                    logger.LogWarning(
-                        "Unable to determine whether a managed process is running for {ApplicationName}; skipping warning, closure, and installation",
-                        item.Policy.Name);
-                    syncEtag = null;
-                    continue;
-                }
-                if (processState == ManagedProcessState.NotRunning)
-                {
-                    logger.LogInformation(
-                        "No managed process is running for {ApplicationName}; skipping the warning and process closure",
-                        item.Policy.Name);
-                    RunSilentInstallCommands(new[] { item.Policy });
-                    // Re-evaluate on the next poll so a process started later is
-                    // detected even when the server configuration is unchanged.
-                    syncEtag = null;
-                    continue;
-                }
-
-                var timeout = item.Policy.UpdateMode
-                    ? Math.Max(1, item.Policy.UpdateModeCloseTimeoutSeconds)
-                    : Math.Max(5, sync.NormalCloseTimeoutSeconds);
-                var outcome = await SessionWarningChannel.ShowAsync(
-                    item.Policy.Name,
-                    timeout,
-                    item.Policy.AllowPostpone,
-                    logger,
-                    cancellationToken);
-                if (outcome == WarningOutcome.Postpone)
-                {
-                    logger.LogInformation("User postponed the controlled update for {ApplicationName}", item.Policy.Name);
-                    syncEtag = null;
-                    continue;
-                }
-                if (outcome == WarningOutcome.CompanionUnavailable)
-                {
-                    logger.LogWarning(
-                        "Warning companion unavailable for {ApplicationName}; skipping process closure and installation",
-                        item.Policy.Name);
-                    // Request a fresh configuration next time: otherwise a
-                    // cached 304 response would prevent another warning attempt.
-                    syncEtag = null;
-                    continue;
-                }
-                if (!CloseManagedProcesses(new[] { item.Policy }))
-                {
-                    logger.LogWarning(
-                        "Managed process closure did not complete for {ApplicationName}; skipping installation",
-                        item.Policy.Name);
-                    // Request a fresh configuration so process closure and the
-                    // installation can be retried rather than installing over
-                    // a process that may still be running.
-                    syncEtag = null;
-                    continue;
-                }
-                RunSilentInstallCommands(new[] { item.Policy });
-            }
+            logger.LogDebug("Scheduled enforcement, where needed, for {PolicyCount} noncompliant policies", nonCompliantPolicies.Count);
         }
+
+        if (!shouldReport) return;
 
         using var request = CreateRequest(HttpMethod.Post, "/sync/report");
         request.Content = JsonContent.Create(new
@@ -192,7 +172,191 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         logger.LogInformation(
             "Reported evaluation for {Hostname}: {Result} ({ApplicationCount} applications)",
             configuration.Hostname, nonCompliantPolicies.Count > 0 ? "warning" : "success", results.Count);
+        lastReportedCompliance.Clear();
+        foreach (var item in results)
+            lastReportedCompliance[item.Policy.Id] = item.Result.Compliant;
     }
+
+    private void ScheduleEnforcement(
+        SoftwarePolicy policy, bool compliant, SyncConfig sync, CancellationToken cancellationToken)
+    {
+        var signature = GetPolicySignature(policy, sync);
+        lock (enforcementLock)
+        {
+            if (!enforcementStates.TryGetValue(policy.Id, out var state))
+            {
+                state = new EnforcementState();
+                enforcementStates.Add(policy.Id, state);
+            }
+            state.Compliant = compliant;
+
+            if (compliant)
+            {
+                state.Cancellation?.Cancel();
+                state.CooldownUntil = DateTimeOffset.MinValue;
+                state.Signature = signature;
+                return;
+            }
+
+            if (!string.Equals(state.Signature, signature, StringComparison.Ordinal))
+            {
+                state.Cancellation?.Cancel();
+                state.Signature = signature;
+                state.CooldownUntil = DateTimeOffset.MinValue;
+            }
+            if (state.Task is { IsCompleted: false } || state.CooldownUntil > DateTimeOffset.UtcNow)
+                return;
+
+            var processState = GetManagedProcessState(policy);
+            if (processState == ManagedProcessState.Unknown)
+            {
+                logger.LogWarning(
+                    "Unable to determine whether a managed process is running for {ApplicationName}; skipping warning, closure, and installation",
+                    policy.Name);
+                state.CooldownUntil = DateTimeOffset.UtcNow.AddMinutes(1);
+                return;
+            }
+
+            state.Cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var enforcementCancellationToken = state.Cancellation.Token;
+            state.Task = Task.Run(
+                () => EnforcePolicyAsync(policy, sync, state, signature, enforcementCancellationToken),
+                CancellationToken.None);
+            _ = state.Task.ContinueWith(task =>
+            {
+                if (task.Exception is not null)
+                    logger.LogError(task.Exception, "Background enforcement failed for {ApplicationName}", policy.Name);
+                lock (enforcementLock)
+                {
+                    if (ReferenceEquals(state.Task, task))
+                    {
+                        state.Cancellation?.Dispose();
+                        state.Cancellation = null;
+                    }
+                }
+            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+        }
+    }
+
+    private async Task EnforcePolicyAsync(
+        SoftwarePolicy policy, SyncConfig sync,
+        EnforcementState state, string signature, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            var processState = GetManagedProcessState(policy);
+            if (processState == ManagedProcessState.Unknown)
+            {
+                logger.LogWarning(
+                    "Unable to confirm managed process state for {ApplicationName}; skipping warning, closure, and installation",
+                    policy.Name);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(1));
+                return;
+            }
+            if (processState == ManagedProcessState.NotRunning)
+            {
+                logger.LogInformation("No managed process is running for {ApplicationName}; running silent installation without a warning", policy.Name);
+                if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+                await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+                return;
+            }
+
+            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            var timeout = policy.UpdateMode
+                ? Math.Max(1, policy.UpdateModeCloseTimeoutSeconds)
+                : Math.Max(5, sync.NormalCloseTimeoutSeconds);
+            var outcome = await SessionWarningChannel.ShowAsync(
+                policy.Name, timeout, policy.AllowPostpone, logger, cancellationToken);
+            if (outcome == WarningOutcome.Postpone)
+            {
+                logger.LogInformation("User postponed the controlled update for {ApplicationName}", policy.Name);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+                return;
+            }
+            if (outcome == WarningOutcome.CompanionUnavailable)
+            {
+                logger.LogWarning("Warning companion unavailable for {ApplicationName}; skipping process closure and installation", policy.Name);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(1));
+                return;
+            }
+
+            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            var currentResult = EvaluatePolicy(policy);
+            if (currentResult.Compliant)
+            {
+                logger.LogInformation(
+                    "Policy {ApplicationName} became compliant before process closure; skipping closure and installation",
+                    policy.Name);
+                return;
+            }
+
+            processState = GetManagedProcessState(policy);
+            if (processState == ManagedProcessState.Unknown)
+            {
+                logger.LogWarning(
+                    "Unable to reconfirm managed process state for {ApplicationName}; skipping closure and installation",
+                    policy.Name);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(1));
+                return;
+            }
+            if (processState == ManagedProcessState.NotRunning)
+            {
+                logger.LogInformation(
+                    "Managed process for {ApplicationName} exited before closure; continuing without a kill",
+                    policy.Name);
+                if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+                await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+                return;
+            }
+
+            if (!CloseManagedProcesses(new[] { policy }, cancellationToken))
+            {
+                logger.LogWarning("Managed process closure did not complete for {ApplicationName}; skipping installation", policy.Name);
+                SetCooldown(state, signature, TimeSpan.FromMinutes(1));
+                return;
+            }
+            await RunSilentInstallCommandsAsync(policy, cancellationToken);
+            SetCooldown(state, signature, TimeSpan.FromMinutes(5));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogInformation("Background enforcement cancelled for {ApplicationName}", policy.Name);
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Background enforcement failed for {ApplicationName}", policy.Name);
+            SetCooldown(state, signature, TimeSpan.FromMinutes(1));
+        }
+    }
+
+    private bool IsCurrentEnforcement(
+        EnforcementState state,
+        string signature,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested) return false;
+        lock (enforcementLock)
+        {
+            return !state.Compliant &&
+                string.Equals(state.Signature, signature, StringComparison.Ordinal) &&
+                !cancellationToken.IsCancellationRequested;
+        }
+    }
+
+    private void SetCooldown(EnforcementState state, string signature, TimeSpan duration)
+    {
+        lock (enforcementLock)
+        {
+            if (string.Equals(state.Signature, signature, StringComparison.Ordinal))
+                state.CooldownUntil = DateTimeOffset.UtcNow.Add(duration);
+        }
+    }
+
+    private static string GetPolicySignature(SoftwarePolicy policy, SyncConfig sync) =>
+        $"{sync.ConfigVersion}|{sync.NormalCloseTimeoutSeconds}|{JsonSerializer.Serialize(policy, JsonOptions.Default)}";
 
     private ApplicationResult EvaluatePolicy(SoftwarePolicy policy)
     {
@@ -231,12 +395,15 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             string.Join("; ", checks.Select(check => $"{check.Label}: {check.Expected}")));
     }
 
-    private bool CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
+    private bool CloseManagedProcesses(
+        IEnumerable<SoftwarePolicy> policies,
+        CancellationToken cancellationToken)
     {
         var processNames = GetManagedProcessNames(policies);
         var closureSucceeded = true;
         foreach (var processName in processNames)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             Process[] processes;
             try
             {
@@ -258,6 +425,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             {
                 try
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     process.Kill(entireProcessTree: true);
                     if (process.WaitForExit(TimeSpan.FromSeconds(5)))
                         logger.LogInformation("Confirmed closure of {ProcessName} (PID {ProcessId})", processName, process.Id);
@@ -379,10 +547,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             .ToList();
     }
 
-    private void RunSilentInstallCommands(IEnumerable<SoftwarePolicy> policies)
+    private async Task RunSilentInstallCommandsAsync(SoftwarePolicy policy, CancellationToken cancellationToken)
     {
-        foreach (var check in policies.SelectMany(policy => policy.ExeChecks))
+        foreach (var check in policy.ExeChecks)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var observed = File.Exists(check.Executable)
                 ? FileVersionInfo.GetVersionInfo(check.Executable).FileVersion ?? ""
                 : "";
@@ -396,8 +565,16 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     WindowStyle = ProcessWindowStyle.Hidden,
-                });
-                logger.LogInformation("Started silent installation for {Executable}", check.Executable);
+                }) ?? throw new InvalidOperationException("cmd.exe did not start.");
+                logger.LogInformation(
+                    "Started silent installation for {Executable} (PID {ProcessId})",
+                    check.Executable, process.Id);
+                // Once launched, retain the Process handle until completion. This
+                // prevents a subsequent scan from launching a duplicate command.
+                await process.WaitForExitAsync(CancellationToken.None);
+                logger.LogInformation(
+                    "Silent installation for {Executable} (PID {ProcessId}) exited with code {ExitCode}",
+                    check.Executable, process.Id, process.ExitCode);
             }
             catch (Exception exception)
             {
@@ -418,7 +595,17 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     {
         var baseline = Math.Max(10, intervalSeconds);
         var jittered = baseline * (0.9 + Random.Shared.NextDouble() * 0.2);
-        return TimeSpan.FromSeconds(Math.Max(10, jittered));
+        return TimeSpan.FromSeconds(Math.Min(30, Math.Max(10, jittered)));
+    }
+
+    private static async Task DelayUntilNextScanAsync(
+        long scanStarted,
+        TimeSpan scanInterval,
+        CancellationToken cancellationToken)
+    {
+        var remaining = scanInterval - Stopwatch.GetElapsedTime(scanStarted);
+        if (remaining > TimeSpan.Zero)
+            await Task.Delay(remaining, cancellationToken);
     }
 
     private static bool IsConfiguredMatch(string observed, string expected) =>
@@ -640,6 +827,15 @@ internal static class SessionWarningChannel
 
 internal enum WarningOutcome { Proceed, Postpone, CompanionUnavailable }
 internal enum ManagedProcessState { Running, NotRunning, Unknown }
+
+internal sealed class EnforcementState
+{
+    public Task? Task { get; set; }
+    public CancellationTokenSource? Cancellation { get; set; }
+    public DateTimeOffset CooldownUntil { get; set; }
+    public string? Signature { get; set; }
+    public bool Compliant { get; set; }
+}
 
 internal static class SessionCompanionLauncher
 {

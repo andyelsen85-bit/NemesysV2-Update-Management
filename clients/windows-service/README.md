@@ -30,10 +30,17 @@ The installer:
 - starts the service.
 
 The service enrolls by hostname (the reported address is the best available local
-IPv4 address), polls the authenticated sync endpoint, evaluates EXE file versions
-and INI section/key/value checks, and sends labelled audit summaries for every
-configured check. Missing files, unavailable EXE versions, missing INI values, and
-unconfigured expected values are explicitly reported.
+IPv4 address), refreshes the authenticated sync endpoint, and scans the configured
+policies and running processes at least every 30 seconds. It evaluates EXE file
+versions and INI section/key/value checks and sends labelled audit summaries for
+every configured check. Missing files, unavailable EXE versions, missing INI
+values, and unconfigured expected values are explicitly reported. If the config
+endpoint is temporarily unavailable after a successful download, the service
+continues those local scans from its cached configuration. API operations have a
+bounded timeout, and each scan delay is measured from the previous scan start so
+network time does not extend the cadence. Audit reports are anti-flooded: they
+are sent on a configuration or compliance-state change, and the reported state
+is recorded only after a successful POST.
 
 When a policy is noncompliant, the service first checks whether any configured
 supervised, legacy, or version-check executable is currently running. If none is
@@ -56,7 +63,15 @@ configured countdown plus a response grace period.
 
 The service uses process enumeration and `Kill(entireProcessTree: true)` under
 `LocalSystem` so managed processes can be closed across Windows sessions after a
-valid warning outcome.
+valid warning outcome. Enforcement is scheduled independently per policy, so a
+warning countdown, close operation, or installer never delays policy scanning.
+Only one enforcement/install task can be active for a policy; started installer
+commands are tracked through exit and their exit code is logged. To avoid
+repeated prompts or launch attempts, Postpone and completed install attempts use
+a five-minute cooldown, while unavailable companions, unknown process state, and
+close failures use one minute. Cooldowns are cleared when the policy becomes
+compliant or its configuration changes. If process enumeration is unknown, the
+service fails safe and does not warn, close, or install.
 
 ## Runtime logs
 
