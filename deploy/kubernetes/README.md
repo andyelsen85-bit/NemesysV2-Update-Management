@@ -28,7 +28,8 @@ Before applying the test overlay:
 5. Replace the example values in `overlays/test/api-env.yml` and
    `overlays/test/pg-env.yml`. The password in `DATABASE_URL` must match
    `POSTGRES_PASSWORD`.
-6. Replace the example hostname and select the cluster’s ingress/TLS annotations.
+6. Set `TLS_HOSTNAME` in `base/web-env.yml` (or patch it in an overlay) to the
+   public DNS name used to reach the `web` Service.
 7. Ensure the `nemesys` namespace exists. For ArgoCD, set
    `spec.syncPolicy.syncOptions` to include `CreateNamespace=true`; for manual
    kubectl use, run `kubectl create namespace nemesys` once.
@@ -72,10 +73,14 @@ connection string to a shell history or repository. The PostgreSQL Deployment
 has one replica, so configure PostgreSQL backups and understand that this is not
 a highly available database topology.
 
-The Ingress sends `/api/*` to the API and all other paths to the console. The
-Ingress terminates HTTPS on public port `443` and forwards to the internal
-HTTP Services. The API deployment is replica-safe because runtime state is held
-in PostgreSQL and the administrator session is signed with `SESSION_SECRET`.
+There is no Kubernetes Ingress in this deployment. Expose the `web` Service
+directly (for example with a LoadBalancer, external IP, or the cluster's
+networking policy) on TCP ports `80` and `443`. The console Nginx redirects
+HTTP to HTTPS and proxies `/api/*` to the API over the Pod-local HTTP port
+`8081`. Only `/healthz` remains available over HTTP for Kubernetes probes.
+The internal `api` Service remains available on port `8080` for cluster-local
+administration and diagnostics. Runtime state is held in PostgreSQL and the
+administrator session is signed with `SESSION_SECRET`.
 
 ## Update the test image versions
 
@@ -92,17 +97,19 @@ Change Manager pattern. Production will be added later as a separate overlay
 that points `DATABASE_URL` to the Patroni service and does not include the test
 PostgreSQL resources.
 
-Because the API and web containers share one Pod network namespace, they must
-listen on different container ports. The API uses `8081` and the web console
-uses `8080`; the API Service remains available on Service port `8080` and
-targets the API's `8081` container port.
+Because the API and web containers share one Pod network namespace, the API
+listens only on HTTP port `8081`; the web console owns ports `80` and `443`.
+The API ConfigMap sets `TLS_TERMINATION=proxy`, so it remains HTTP even if
+`forceHttps` is enabled in the console. It continues to make redirect and HSTS
+decisions from Nginx's `X-Forwarded-Proto` header.
 
 ## HTTPS and Windows client connections
 
-The public client endpoint is the Ingress hostname on port `443`:
+The public client endpoint is the externally reachable `web` Service hostname
+on port `443`:
 
 ```text
-https://<nemesys-ingress-host>/api/sync/enroll
+https://<nemesys-service-host>/api/sync/enroll
 ```
 
 The Windows installer uses standard HTTPS without requiring a `/port`
@@ -110,18 +117,13 @@ argument. The service defaults to TCP `443`. The `sync_port` compatibility
 setting is seeded at `443`, and existing installations still using the old
 untouched default `5187` are moved to `443` during additive startup bootstrap.
 
-Install a certificate for the Ingress as a Kubernetes TLS Secret; do not put
-the certificate or private key in Git:
-
-```bash
-kubectl -n nemesys create secret tls nemesys-tls \
-  --cert=/secure/path/fullchain.pem \
-  --key=/secure/path/private-key.pem
-```
-
-Set the real client-facing DNS name in the Ingress `host` and `tls.hosts`
-values. The existing `nemesys.example.com` value is a placeholder. The
-certificate must cover that hostname. The certificate upload in the
-administrator console is for a directly exposed API runtime; Kubernetes
-Ingress TLS termination should be used for this deployment because the
-console Nginx proxies to the API over internal HTTP.
+The `longhorn-nemesys-certs-pvc` is shared by the API and console containers.
+On first boot the console creates a persisted self-signed certificate using
+`TLS_HOSTNAME` and `TLS_SELFSIGNED_DAYS` (default `365`) if no valid uploaded
+certificate exists. Upload a production certificate, chain, and matching
+private key through the administrator console. Nemesys keeps the certificate
+and encrypted key in PostgreSQL, atomically materializes them to the shared
+PVC, and the console validates and reloads Nginx when those files change.
+Do not put certificates or private keys in Git or create a Kubernetes TLS
+Secret for this deployment. The certificate must cover the real public DNS
+name.

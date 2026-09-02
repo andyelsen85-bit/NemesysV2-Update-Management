@@ -15,8 +15,8 @@ The client MSI wraps the already self-contained Windows EXE installer and is bui
 
 **How to apply:** Run the documented PowerShell build on a Windows runner after publishing the client; keep the MSI source and silent-property contract in source control, not generated binaries or API keys.
 
-Kubernetes deployments terminate public TLS at the Ingress on standard port 443. The console Nginx and API communicate over internal HTTP, and Windows client installs default to HTTPS/443 without requiring a port argument.
+Kubernetes deployments follow the Change Manager pattern: the web Service exposes ports 80 and 443 directly, console Nginx terminates TLS, and the API remains on Pod-local HTTP. Windows client installs default to HTTPS/443 without requiring a port argument.
 
-**Why:** Enabling the API runtime’s database-backed TLS certificate behind the HTTP Nginx proxy changes the API listener protocol and breaks proxy traffic. The Ingress TLS Secret is the correct Kubernetes certificate boundary.
+**Why:** This environment exposes application Services directly rather than using Kubernetes Ingress. The console must remain reachable on 443 while Nginx proxies API traffic to the HTTP API sidecar.
 
-**How to apply:** Put the certificate in the `nemesys-tls` Kubernetes Secret, keep the API on its internal HTTP port, and do not enable the console’s direct-runtime certificate mode for Kubernetes deployments.
+**How to apply:** Keep ports 80/443 on the web Service, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.

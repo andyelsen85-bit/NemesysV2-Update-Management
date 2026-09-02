@@ -7,6 +7,7 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "8081"
+  TLS_TERMINATION: "proxy"
 ---
 apiVersion: v1
 kind: Secret

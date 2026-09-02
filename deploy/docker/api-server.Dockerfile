@@ -16,7 +16,7 @@ RUN pnpm --filter @workspace/api-server run build
 FROM node:24-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
-ENV PORT=8080
+ENV PORT=8081
 WORKDIR /app
 
 RUN groupadd --system --gid 10001 nemesys \
@@ -25,5 +25,5 @@ RUN groupadd --system --gid 10001 nemesys \
 COPY --from=build --chown=nemesys:nemesys /workspace/artifacts/api-server/dist ./dist
 
 USER nemesys
-EXPOSE 8080
+EXPOSE 8081
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]

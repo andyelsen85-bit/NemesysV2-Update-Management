@@ -2,6 +2,7 @@ import { logger } from "./lib/logger";
 import { ensureSeedData } from "./lib/seed";
 import { ensureDatabaseSchema } from "@workspace/db";
 import { startRuntimeServer } from "./runtime-server";
+import { materializeTlsCredentials } from "./lib/ssl";
 
 const rawPort = process.env["PORT"];
 
@@ -20,6 +21,7 @@ if (Number.isNaN(port) || port <= 0) {
 try {
   await ensureDatabaseSchema();
   await ensureSeedData();
+  await materializeTlsCredentials();
 } catch (error) {
   const hasMissingRelation = (value: unknown): boolean => {
     let current = value;

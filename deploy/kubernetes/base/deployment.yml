@@ -17,6 +17,9 @@ spec:
         app: nemesys
         team: infra
     spec:
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
       imagePullSecrets:
         - name: regcred
       containers:
@@ -31,6 +34,13 @@ spec:
                 name: api-env
             - secretRef:
                 name: api-env-secret
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+          volumeMounts:
+            - name: certs
+              mountPath: /var/lib/nemesys/tls
           readinessProbe:
             httpGet:
               path: /api/healthz
@@ -54,11 +64,17 @@ spec:
           image: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-console:latest
           ports:
             - name: web-http
-              containerPort: 8080
+              containerPort: 80
+              protocol: TCP
+            - name: web-https
+              containerPort: 443
               protocol: TCP
           envFrom:
             - configMapRef:
                 name: web-env
+          volumeMounts:
+            - name: certs
+              mountPath: /var/lib/nemesys/tls
           readinessProbe:
             httpGet:
               path: /healthz
@@ -78,3 +94,7 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+      volumes:
+        - name: certs
+          persistentVolumeClaim:
+            claimName: longhorn-nemesys-certs-pvc

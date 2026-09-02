@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
 import { requireAdmin } from "./auth";
 import { encryptSecret } from "../lib/secret-crypto";
+import { materializeTlsCredentials, usesProxyTlsTermination } from "../lib/ssl";
 import { testLdapConnection } from "../lib/ldap";
 
 const router: IRouter = Router();
@@ -133,10 +134,18 @@ router.put("/settings/ssl", requireAdmin, async (req, res): Promise<void> => {
     .values(values)
     .onConflictDoUpdate({ target: sslSettingsTable.id, set: values })
     .returning();
+  try {
+    await materializeTlsCredentials(row);
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? `Certificate was saved but could not be installed for the console: ${error.message}` : "Certificate was saved but could not be installed for the console." });
+    return;
+  }
   res.json(sslDto(row));
-  setImmediate(() => {
-    void import("../runtime-server").then(({ reloadRuntimeServer }) => reloadRuntimeServer()).catch(() => undefined);
-  });
+  if (!usesProxyTlsTermination()) {
+    setImmediate(() => {
+      void import("../runtime-server").then(({ reloadRuntimeServer }) => reloadRuntimeServer()).catch(() => undefined);
+    });
+  }
 });
 
 export default router;

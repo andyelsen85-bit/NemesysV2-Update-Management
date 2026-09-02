@@ -5,3 +5,5 @@ metadata:
   namespace: nemesys
 data:
   BASE_PATH: "/"
+  TLS_HOSTNAME: ""
+  TLS_SELFSIGNED_DAYS: "365"

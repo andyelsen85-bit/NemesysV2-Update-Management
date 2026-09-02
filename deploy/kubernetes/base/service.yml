@@ -15,6 +15,10 @@ spec:
       protocol: TCP
       port: 80
       targetPort: web-http
+    - name: svc-https
+      protocol: TCP
+      port: 443
+      targetPort: web-https
 ---
 apiVersion: v1
 kind: Service
