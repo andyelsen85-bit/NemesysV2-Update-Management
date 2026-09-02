@@ -13,6 +13,7 @@ internal sealed class DailyFileLoggerProvider : ILoggerProvider
     {
         this.directory = directory;
         Directory.CreateDirectory(directory);
+        DeleteLogsExcept(DateTime.Now.Date);
     }
 
     public ILogger CreateLogger(string categoryName) =>
@@ -40,6 +41,7 @@ internal sealed class DailyFileLoggerProvider : ILoggerProvider
             if (writer is null || writerDate.Date != now.Date)
             {
                 writer?.Dispose();
+                DeleteLogsExcept(now.Date);
                 writerDate = now.Date;
                 var path = Path.Combine(directory, $"client-{now:yyyyMMdd}.log");
                 writer = new StreamWriter(new FileStream(
@@ -56,6 +58,36 @@ internal sealed class DailyFileLoggerProvider : ILoggerProvider
                 $"{now:O} [{logLevel}] {categoryName} (EventId={eventId.Id}): {message}");
             if (exception is not null)
                 writer.WriteLine(exception);
+        }
+    }
+
+    private void DeleteLogsExcept(DateTime currentDate)
+    {
+        foreach (var path in Directory.EnumerateFiles(directory, "client-*.log"))
+        {
+            var fileName = Path.GetFileNameWithoutExtension(path);
+            if (!fileName.StartsWith("client-", StringComparison.OrdinalIgnoreCase) ||
+                !DateTime.TryParseExact(
+                    fileName["client-".Length..],
+                    "yyyyMMdd",
+                    null,
+                    System.Globalization.DateTimeStyles.None,
+                    out var fileDate) ||
+                fileDate.Date == currentDate)
+                continue;
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+                // A transient lock is safe; the next startup or rollover retries it.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // A transient file-attribute or permission issue is safe to retry later.
+            }
         }
     }
 }

@@ -84,6 +84,10 @@ The service writes a daily log to:
 C:\ProgramData\NemesysV2\logs\client-YYYYMMDD.log
 ```
 
+Only the current day's client log is retained. Older `client-YYYYMMDD.log`
+files are removed when the service starts and when the logger rolls over to a
+new day, so the client log directory does not grow indefinitely.
+
 The log records evaluation/report summaries and warning requests, companion
 launch/connection/authentication outcomes, postponements, unavailable companions,
 process-close requests, and installation attempts.
