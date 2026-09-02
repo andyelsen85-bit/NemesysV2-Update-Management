@@ -25,11 +25,11 @@ Windows software update enforcement with a server control center, client sync pr
 
 ## Where things live
 
-- `artifacts/nemesys-console` — React admin console for overview, clients, software policies, audit history, and server settings.
+- `artifacts/nemesys-console` — React admin console for overview, clients, software policies, audit history, administrators, LDAP/PKI security, API-key management, and server settings.
 - `artifacts/api-server` — Express API used by the control center and Windows service.
 - `clients/windows-service` — Windows-targeted LocalSystem service, DPAPI key storage, hostname enrollment, policy evaluation, and user-session countdown companion.
 - `lib/api-spec/openapi.yaml` — source of truth for dashboard, policy, client, settings, audit, and sync contracts.
-- `lib/db/src/schema/index.ts` — Drizzle schema for Nemesys clients, policies, audit records, and server settings.
+- `lib/db/src/schema/index.ts` — Drizzle schema for Nemesys clients, policies, audit records, server settings, LDAP configuration, administrator users, and encrypted SSL material.
 
 ## Architecture decisions
 
@@ -38,14 +38,17 @@ Windows software update enforcement with a server control center, client sync pr
 - Client sync configuration is separate from the admin surface so the sync port can later be exposed through IIS/firewall policy independently.
 - Clients authenticate with one shared API key, while the server stores only its SHA-256 hash. Client identity is the Windows hostname; individual client certificates are not part of the design.
 - API-key rotation returns the plaintext key once for silent installation/reconfiguration commands. Windows clients must protect the key with DPAPI; the server hostname may remain plain text in the local client configuration.
-- The effective sync contract includes server-controlled Update Mode and the selected close-on-start timeout, so a running Windows client can apply policy changes without service restart.
+- The effective sync contract includes per-application Update Mode and each policy's close-on-start timeout, so a running Windows client can apply policy changes without service restart.
 - Software policies support both Windows file-version checks and section/key/value checks for legacy INI files.
 - Administrator management routes require a signed HttpOnly session; `/sync/*` uses the shared API key and hostname headers instead.
+- LDAP service-account credentials and PKI private keys are encrypted at rest using a key derived from `SESSION_SECRET`; certificate status is exposed without returning private material.
+- HTTPS activation starts the API with the stored PKI certificate when enabled, redirects proxied HTTP requests, and can emit HSTS after TLS is confirmed.
+- The client API key is hashed server-side; rotation or explicitly saving a chosen key returns clear text only in that intentional response for copying/reconfiguration.
 - The Windows service remains non-interactive; a companion user-session process owns countdown notifications.
 
 ## Product
 
-- Administrators can monitor enrolled clients, define enforcement policies, review sync history, and configure sync cadence, shared API-key transport, and global Update Mode.
+- Administrators can monitor enrolled clients, define enforcement policies, review sync history, manage LDAP administrators, upload organization PKI certificates, configure sync cadence, and manage the shared API key. Update Mode is configured per application.
 - The uploaded Poste INI format is represented by rules such as `[Poste] Version=454` and `VersMedSyst=418`.
 
 ## User preferences

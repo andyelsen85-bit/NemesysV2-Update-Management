@@ -1,6 +1,6 @@
-import app from "./app";
 import { logger } from "./lib/logger";
 import { ensureSeedData } from "./lib/seed";
+import { startRuntimeServer } from "./runtime-server";
 
 const rawPort = process.env["PORT"];
 
@@ -18,11 +18,9 @@ if (Number.isNaN(port) || port <= 0) {
 
 await ensureSeedData();
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-
-  logger.info({ port }, "Server listening");
-});
+try {
+  await startRuntimeServer(port);
+} catch (error) {
+  logger.error({ err: error }, "Error listening on port");
+  process.exit(1);
+}

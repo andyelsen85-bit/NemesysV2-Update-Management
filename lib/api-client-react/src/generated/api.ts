@@ -20,6 +20,10 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AdministratorUser,
+  AdministratorUserInput,
+  AdministratorUserUpdate,
+  ApiKeyInput,
   ApiKeyRotation,
   AuditEntry,
   AuthLoginInput,
@@ -30,11 +34,17 @@ import type {
   DashboardSummary,
   GetSyncConfigParams,
   HealthStatus,
+  LdapDiagnostic,
+  LdapSettings,
+  LdapSettingsInput,
+  LdapTestInput,
   ListAuditEntriesParams,
   ServerSettings,
   ServerSettingsInput,
   SoftwarePolicy,
   SoftwarePolicyInput,
+  SslSettings,
+  SslSettingsInput,
   SyncConfig,
   SyncReportInput
 } from './api.schemas';
@@ -968,6 +978,736 @@ export const useRotateClientApiKey = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getRotateClientApiKeyMutationOptions(options));
+    }
+
+export const getSaveClientApiKeyUrl = () => {
+
+
+
+
+  return `/api/settings/api-key`
+}
+
+/**
+ * Explicitly saves a supplied key and returns it in full so an administrator can copy it without reinstalling existing clients.
+ * @summary Save a chosen shared client API key
+ */
+export const saveClientApiKey = async (apiKeyInput: ApiKeyInput, options?: Parameters<typeof customFetch>[1]): Promise<ApiKeyRotation> => {
+
+  return customFetch<ApiKeyRotation>(getSaveClientApiKeyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(apiKeyInput)
+  }
+);}
+
+
+
+
+
+export const getSaveClientApiKeyMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveClientApiKey>>, TError,{data: BodyType<ApiKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveClientApiKey>>, TError,{data: BodyType<ApiKeyInput>}, TContext> => {
+
+const mutationKey = ['saveClientApiKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveClientApiKey>>, {data: BodyType<ApiKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveClientApiKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveClientApiKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveClientApiKey>>>
+    export type SaveClientApiKeyMutationBody = BodyType<ApiKeyInput>
+    export type SaveClientApiKeyMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save a chosen shared client API key
+ */
+export const useSaveClientApiKey = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveClientApiKey>>, TError,{data: BodyType<ApiKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveClientApiKey>>,
+        TError,
+        {data: BodyType<ApiKeyInput>},
+        TContext
+      > => {
+      return useMutation(getSaveClientApiKeyMutationOptions(options));
+    }
+
+export const getGetLdapSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/ldap`
+}
+
+/**
+ * @summary Get LDAP connection settings
+ */
+export const getLdapSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<LdapSettings> => {
+
+  return customFetch<LdapSettings>(getGetLdapSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLdapSettingsQueryKey = () => {
+    return [
+    `/api/settings/ldap`
+    ] as const;
+    }
+
+
+export const getGetLdapSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getLdapSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLdapSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLdapSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLdapSettings>>> = ({ signal }) => getLdapSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLdapSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLdapSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getLdapSettings>>>
+export type GetLdapSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get LDAP connection settings
+ */
+
+export function useGetLdapSettings<TData = Awaited<ReturnType<typeof getLdapSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLdapSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLdapSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateLdapSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/ldap`
+}
+
+/**
+ * @summary Save LDAP connection settings
+ */
+export const updateLdapSettings = async (ldapSettingsInput: LdapSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<LdapSettings> => {
+
+  return customFetch<LdapSettings>(getUpdateLdapSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ldapSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateLdapSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLdapSettings>>, TError,{data: BodyType<LdapSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLdapSettings>>, TError,{data: BodyType<LdapSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateLdapSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLdapSettings>>, {data: BodyType<LdapSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateLdapSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLdapSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateLdapSettings>>>
+    export type UpdateLdapSettingsMutationBody = BodyType<LdapSettingsInput>
+    export type UpdateLdapSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save LDAP connection settings
+ */
+export const useUpdateLdapSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLdapSettings>>, TError,{data: BodyType<LdapSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLdapSettings>>,
+        TError,
+        {data: BodyType<LdapSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLdapSettingsMutationOptions(options));
+    }
+
+export const getTestLdapConnectionUrl = () => {
+
+
+
+
+  return `/api/settings/ldap/test`
+}
+
+/**
+ * @summary Test LDAP authentication
+ */
+export const testLdapConnection = async (ldapTestInput: LdapTestInput, options?: Parameters<typeof customFetch>[1]): Promise<LdapDiagnostic> => {
+
+  return customFetch<LdapDiagnostic>(getTestLdapConnectionUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ldapTestInput)
+  }
+);}
+
+
+
+
+
+export const getTestLdapConnectionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLdapConnection>>, TError,{data: BodyType<LdapTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testLdapConnection>>, TError,{data: BodyType<LdapTestInput>}, TContext> => {
+
+const mutationKey = ['testLdapConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testLdapConnection>>, {data: BodyType<LdapTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  testLdapConnection(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestLdapConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof testLdapConnection>>>
+    export type TestLdapConnectionMutationBody = BodyType<LdapTestInput>
+    export type TestLdapConnectionMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test LDAP authentication
+ */
+export const useTestLdapConnection = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLdapConnection>>, TError,{data: BodyType<LdapTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testLdapConnection>>,
+        TError,
+        {data: BodyType<LdapTestInput>},
+        TContext
+      > => {
+      return useMutation(getTestLdapConnectionMutationOptions(options));
+    }
+
+export const getGetSslSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/ssl`
+}
+
+/**
+ * @summary Get SSL certificate status
+ */
+export const getSslSettings = async ( options?: Parameters<typeof customFetch>[1]): Promise<SslSettings> => {
+
+  return customFetch<SslSettings>(getGetSslSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSslSettingsQueryKey = () => {
+    return [
+    `/api/settings/ssl`
+    ] as const;
+    }
+
+
+export const getGetSslSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getSslSettings>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSslSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSslSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSslSettings>>> = ({ signal }) => getSslSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSslSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSslSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getSslSettings>>>
+export type GetSslSettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get SSL certificate status
+ */
+
+export function useGetSslSettings<TData = Awaited<ReturnType<typeof getSslSettings>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSslSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSslSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateSslSettingsUrl = () => {
+
+
+
+
+  return `/api/settings/ssl`
+}
+
+/**
+ * @summary Upload or update the admin panel SSL certificate
+ */
+export const updateSslSettings = async (sslSettingsInput: SslSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<SslSettings> => {
+
+  return customFetch<SslSettings>(getUpdateSslSettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(sslSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateSslSettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSslSettings>>, TError,{data: BodyType<SslSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSslSettings>>, TError,{data: BodyType<SslSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateSslSettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSslSettings>>, {data: BodyType<SslSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateSslSettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSslSettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateSslSettings>>>
+    export type UpdateSslSettingsMutationBody = BodyType<SslSettingsInput>
+    export type UpdateSslSettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Upload or update the admin panel SSL certificate
+ */
+export const useUpdateSslSettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSslSettings>>, TError,{data: BodyType<SslSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSslSettings>>,
+        TError,
+        {data: BodyType<SslSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSslSettingsMutationOptions(options));
+    }
+
+export const getListAdministratorUsersUrl = () => {
+
+
+
+
+  return `/api/users`
+}
+
+/**
+ * @summary List administrator users
+ */
+export const listAdministratorUsers = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdministratorUser[]> => {
+
+  return customFetch<AdministratorUser[]>(getListAdministratorUsersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdministratorUsersQueryKey = () => {
+    return [
+    `/api/users`
+    ] as const;
+    }
+
+
+export const getListAdministratorUsersQueryOptions = <TData = Awaited<ReturnType<typeof listAdministratorUsers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdministratorUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdministratorUsersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdministratorUsers>>> = ({ signal }) => listAdministratorUsers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdministratorUsers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdministratorUsersQueryResult = NonNullable<Awaited<ReturnType<typeof listAdministratorUsers>>>
+export type ListAdministratorUsersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List administrator users
+ */
+
+export function useListAdministratorUsers<TData = Awaited<ReturnType<typeof listAdministratorUsers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdministratorUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdministratorUsersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAdministratorUserUrl = () => {
+
+
+
+
+  return `/api/users`
+}
+
+/**
+ * @summary Add an LDAP administrator
+ */
+export const createAdministratorUser = async (administratorUserInput: AdministratorUserInput, options?: Parameters<typeof customFetch>[1]): Promise<AdministratorUser> => {
+
+  return customFetch<AdministratorUser>(getCreateAdministratorUserUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(administratorUserInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAdministratorUserMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdministratorUser>>, TError,{data: BodyType<AdministratorUserInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAdministratorUser>>, TError,{data: BodyType<AdministratorUserInput>}, TContext> => {
+
+const mutationKey = ['createAdministratorUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdministratorUser>>, {data: BodyType<AdministratorUserInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAdministratorUser(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAdministratorUserMutationResult = NonNullable<Awaited<ReturnType<typeof createAdministratorUser>>>
+    export type CreateAdministratorUserMutationBody = BodyType<AdministratorUserInput>
+    export type CreateAdministratorUserMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Add an LDAP administrator
+ */
+export const useCreateAdministratorUser = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdministratorUser>>, TError,{data: BodyType<AdministratorUserInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAdministratorUser>>,
+        TError,
+        {data: BodyType<AdministratorUserInput>},
+        TContext
+      > => {
+      return useMutation(getCreateAdministratorUserMutationOptions(options));
+    }
+
+export const getUpdateAdministratorUserUrl = (id: string,) => {
+
+
+
+
+  return `/api/users/${id}`
+}
+
+/**
+ * @summary Enable or disable an administrator
+ */
+export const updateAdministratorUser = async (id: string,
+    administratorUserUpdate: AdministratorUserUpdate, options?: Parameters<typeof customFetch>[1]): Promise<AdministratorUser> => {
+
+  return customFetch<AdministratorUser>(getUpdateAdministratorUserUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(administratorUserUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateAdministratorUserMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdministratorUser>>, TError,{id: string;data: BodyType<AdministratorUserUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdministratorUser>>, TError,{id: string;data: BodyType<AdministratorUserUpdate>}, TContext> => {
+
+const mutationKey = ['updateAdministratorUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdministratorUser>>, {id: string;data: BodyType<AdministratorUserUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateAdministratorUser(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdministratorUserMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdministratorUser>>>
+    export type UpdateAdministratorUserMutationBody = BodyType<AdministratorUserUpdate>
+    export type UpdateAdministratorUserMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Enable or disable an administrator
+ */
+export const useUpdateAdministratorUser = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdministratorUser>>, TError,{id: string;data: BodyType<AdministratorUserUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdministratorUser>>,
+        TError,
+        {id: string;data: BodyType<AdministratorUserUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateAdministratorUserMutationOptions(options));
+    }
+
+export const getDeleteAdministratorUserUrl = (id: string,) => {
+
+
+
+
+  return `/api/users/${id}`
+}
+
+/**
+ * @summary Remove an administrator
+ */
+export const deleteAdministratorUser = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteAdministratorUserUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteAdministratorUserMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdministratorUser>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAdministratorUser>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['deleteAdministratorUser'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAdministratorUser>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteAdministratorUser(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAdministratorUserMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAdministratorUser>>>
+
+    export type DeleteAdministratorUserMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove an administrator
+ */
+export const useDeleteAdministratorUser = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAdministratorUser>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAdministratorUser>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getDeleteAdministratorUserMutationOptions(options));
     }
 
 export const getLoginUrl = () => {

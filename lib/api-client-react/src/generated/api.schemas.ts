@@ -109,6 +109,12 @@ export interface SoftwarePolicy {
   iniRules: IniRule[];
   /** @minimum 0 */
   graceSeconds: number;
+  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds?: number;
   enabled: boolean;
   lastUpdated: string;
 }
@@ -136,6 +142,12 @@ export interface SoftwarePolicyInput {
      * @maximum 3600
      */
   graceSeconds: number;
+  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds?: number;
   enabled: boolean;
 }
 
@@ -223,6 +235,116 @@ export interface ApiKeyRotation {
   apiKey: string;
   maskedApiKey: string;
   rotatedAt: string;
+}
+
+export interface ApiKeyInput {
+  /**
+     * @minLength 16
+     * @maxLength 256
+     */
+  apiKey: string;
+}
+
+export interface LdapSettings {
+  enabled: boolean;
+  url: string;
+  bindDn: string;
+  bindPasswordSet: boolean;
+  baseDn: string;
+  userFilter: string;
+  usernameAttribute: string;
+  displayNameAttribute: string;
+  emailAttribute: string;
+  verifyTlsCertificate: boolean;
+  caCertificateInstalled: boolean;
+}
+
+export interface LdapSettingsInput {
+  enabled: boolean;
+  url: string;
+  bindDn: string;
+  bindPassword?: string;
+  baseDn: string;
+  userFilter: string;
+  usernameAttribute: string;
+  displayNameAttribute: string;
+  emailAttribute: string;
+  verifyTlsCertificate: boolean;
+  caCertificatePem?: string;
+}
+
+export interface LdapTestInput {
+  username: string;
+  password: string;
+}
+
+export type LdapDiagnosticStage = typeof LdapDiagnosticStage[keyof typeof LdapDiagnosticStage];
+
+
+export const LdapDiagnosticStage = {
+  config: 'config',
+  connect: 'connect',
+  'service-bind': 'service-bind',
+  search: 'search',
+  'user-bind': 'user-bind',
+  ok: 'ok',
+} as const;
+
+export interface LdapDiagnostic {
+  success: boolean;
+  stage: LdapDiagnosticStage;
+  message: string;
+  details?: string;
+}
+
+export interface SslSettings {
+  certificateInstalled: boolean;
+  privateKeyInstalled: boolean;
+  chainInstalled: boolean;
+  /** @nullable */
+  certificateFingerprint: string | null;
+  /** @nullable */
+  certificateSubject: string | null;
+  /** @nullable */
+  certificateExpiresAt: string | null;
+  forceHttps: boolean;
+  hstsEnabled: boolean;
+}
+
+export interface SslSettingsInput {
+  certificatePem: string;
+  privateKeyPem: string;
+  chainPem: string;
+  forceHttps: boolean;
+  hstsEnabled: boolean;
+}
+
+export type AdministratorUserSource = typeof AdministratorUserSource[keyof typeof AdministratorUserSource];
+
+
+export const AdministratorUserSource = {
+  ldap: 'ldap',
+} as const;
+
+export interface AdministratorUser {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string;
+  source: AdministratorUserSource;
+  /** @nullable */
+  directoryDn: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface AdministratorUserInput {
+  /** @minLength 1 */
+  username: string;
+}
+
+export interface AdministratorUserUpdate {
+  isActive: boolean;
 }
 
 export interface SyncConfig {

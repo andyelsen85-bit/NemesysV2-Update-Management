@@ -1,0 +1,13 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputName>NemesysV2.Client</OutputName>
+    <OutputType>Package</OutputType>
+    <Platforms>x64</Platforms>
+    <Platform>x64</Platform>
+    <MsiVersion>1.0.0</MsiVersion>
+    <DefineConstants>ClientPublishDir=$(MSBuildProjectDirectory)\..\..\clients\windows-service\bin\Release\net8.0-windows\win-x64\publish</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

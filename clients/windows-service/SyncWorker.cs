@@ -57,17 +57,23 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
     private async Task EvaluateAndReportAsync(SyncConfig sync, CancellationToken cancellationToken)
     {
-        var results = sync.Policies.Select(EvaluatePolicy).ToList();
-        var nonCompliant = results.Any(result => !result.Compliant);
-        if (nonCompliant)
+        var results = sync.Policies.Select(policy => (Policy: policy, Result: EvaluatePolicy(policy))).ToList();
+        var nonCompliantPolicies = results.Where(item => !item.Result.Compliant).ToList();
+        if (nonCompliantPolicies.Count > 0)
         {
-            await SessionWarningChannel.SendAsync(
-                $"NemesysV2 will close managed applications in {sync.CloseOnStartTimeoutSeconds} seconds.",
-                sync.CloseOnStartTimeoutSeconds,
-                cancellationToken);
-            await Task.Delay(TimeSpan.FromSeconds(sync.CloseOnStartTimeoutSeconds), cancellationToken);
-            CloseManagedProcesses(sync.Policies);
-            RunSilentInstallCommands(sync.Policies);
+            foreach (var item in nonCompliantPolicies)
+            {
+                var timeout = item.Policy.UpdateMode
+                    ? Math.Max(1, item.Policy.UpdateModeCloseTimeoutSeconds)
+                    : Math.Max(5, sync.NormalCloseTimeoutSeconds);
+                await SessionWarningChannel.SendAsync(
+                    $"{item.Policy.Name} will close in {timeout} seconds for its controlled update.",
+                    timeout,
+                    cancellationToken);
+                await Task.Delay(TimeSpan.FromSeconds(timeout), cancellationToken);
+                CloseManagedProcesses(new[] { item.Policy });
+                RunSilentInstallCommands(new[] { item.Policy });
+            }
         }
 
         using var request = CreateRequest(HttpMethod.Post, "/sync/report");
@@ -75,8 +81,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         {
             clientId,
             clientName = configuration.Hostname,
-            result = nonCompliant ? "warning" : "success",
-            applications = results,
+            result = nonCompliantPolicies.Count > 0 ? "warning" : "success",
+            applications = results.Select(item => item.Result),
         }, options: JsonOptions.Default);
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -89,12 +95,16 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             var observed = File.Exists(check.Executable)
                 ? FileVersionInfo.GetVersionInfo(check.Executable).FileVersion ?? ""
                 : "";
-            return observed == check.TargetVersion;
+            return (Observed: observed, Expected: check.TargetVersion, Compliant: observed == check.TargetVersion);
         });
         var iniResults = policy.IniChecks.Select(check =>
-            ReadIniValue(check.FilePath, check.Section, check.Key) == check.ExpectedValue);
+        {
+            var observed = ReadIniValue(check.FilePath, check.Section, check.Key);
+            return (Observed: observed, Expected: check.ExpectedValue, Compliant: observed == check.ExpectedValue);
+        });
         var checks = exeResults.Concat(iniResults).ToList();
-        return new ApplicationResult(policy.Id, policy.Name, checks.All(value => value), policy.TargetVersion, policy.TargetVersion);
+        var first = checks.FirstOrDefault();
+        return new ApplicationResult(policy.Id, policy.Name, checks.Count == 0 || checks.All(value => value.Compliant), first.Observed ?? "", first.Expected ?? "");
     }
 
     private void CloseManagedProcesses(IEnumerable<SoftwarePolicy> policies)
@@ -239,7 +249,9 @@ internal sealed record SoftwarePolicy(
     string Executable,
     string TargetVersion,
     List<ExeCheck> ExeChecks,
-    List<IniCheck> IniChecks);
+    List<IniCheck> IniChecks,
+    bool UpdateMode,
+    int UpdateModeCloseTimeoutSeconds);
 internal sealed record ExeCheck(string Executable, string TargetVersion, string? InstallCommand);
 internal sealed record IniCheck(string FilePath, string Section, string Key, string ExpectedValue);
 internal sealed record ApplicationResult(

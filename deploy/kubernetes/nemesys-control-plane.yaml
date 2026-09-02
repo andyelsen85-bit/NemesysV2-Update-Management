@@ -28,8 +28,9 @@ spec:
     spec:
       containers:
         - name: api
-          # Publish artifacts/api-server and replace this image reference.
-          image: registry.example.com/nemesys/api-server:replace-me
+          # GitHub Actions publishes this image to GHCR on every main push.
+          # Replace the owner if this repository is forked.
+          image: ghcr.io/andyelsen85-bit/nemesys-api-server:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -60,6 +61,62 @@ spec:
               cpu: 500m
               memory: 512Mi
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemesys-console
+  labels:
+    app: nemesys-console
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nemesys-console
+  template:
+    metadata:
+      labels:
+        app: nemesys-console
+    spec:
+      containers:
+        - name: console
+          # GitHub Actions publishes this image to GHCR on every main push.
+          image: ghcr.io/andyelsen85-bit/nemesys-console:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemesys-console
+spec:
+  selector:
+    app: nemesys-console
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -89,6 +146,13 @@ spec:
       http:
         paths:
           - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nemesys-console
+                port:
+                  name: http
+          - path: /api
             pathType: Prefix
             backend:
               service:

@@ -656,7 +656,7 @@ export function UpdatedControlCenter() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="font-['Space_Grotesk'] text-[18px] font-semibold tracking-[-0.035em] text-[#263d3e]">
-                          Global Update Mode
+                           Application Update Mode
                         </h2>
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] ${
@@ -668,8 +668,8 @@ export function UpdatedControlCenter() {
                       </div>
                       <p className="mt-1.5 max-w-[650px] text-[12px] leading-5 text-[#718481]">
                         {updateMode
-                          ? "Policies will use the short close-on-start timeout while applications enter their controlled update window."
-                          : "Enable before maintenance to let policies safely close running applications and apply pending updates."}
+                           ? "Each application policy uses its own short close-on-start timeout during its controlled update window."
+                           : "Configure Update Mode independently on the software policy that needs maintenance."}
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-[10px] text-[#69817c]">
                         <span className="inline-flex items-center gap-1.5">

@@ -21,6 +21,12 @@ export interface SoftwarePolicy {
   iniRules: IniRule[];
   /** @minimum 0 */
   graceSeconds: number;
+  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds?: number;
   enabled: boolean;
   lastUpdated: Date;
 }

@@ -24,5 +24,11 @@ export interface SoftwarePolicyInput {
      * @maximum 3600
      */
   graceSeconds: number;
+  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 300
+     */
+  updateModeCloseTimeoutSeconds?: number;
   enabled: boolean;
 }

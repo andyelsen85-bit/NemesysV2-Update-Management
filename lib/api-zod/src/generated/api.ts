@@ -78,6 +78,8 @@ export const getClientSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
 
 export const getClientSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
 
+export const getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax = 300;
+
 
 
 export const GetClientSyncConfigResponse = zod.object({
@@ -110,6 +112,8 @@ export const GetClientSyncConfigResponse = zod.object({
   "expectedValue": zod.string()
 })),
   "graceSeconds": zod.number().min(getClientSyncConfigResponsePoliciesItemGraceSecondsMin),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))
@@ -120,6 +124,8 @@ export const GetClientSyncConfigResponse = zod.object({
  * @summary List software update policies
  */
 export const listSoftwareResponseGraceSecondsMin = 0;
+
+export const listSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
@@ -146,6 +152,8 @@ export const ListSoftwareResponseItem = zod.object({
   "expectedValue": zod.string()
 })),
   "graceSeconds": zod.number().min(listSoftwareResponseGraceSecondsMin),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(listSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -158,6 +166,8 @@ export const ListSoftwareResponse = zod.array(ListSoftwareResponseItem)
 
 export const createSoftwareBodyGraceSecondsMin = 0;
 export const createSoftwareBodyGraceSecondsMax = 3600;
+
+export const createSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
@@ -183,10 +193,14 @@ export const CreateSoftwareBody = zod.object({
   "expectedValue": zod.string()
 })).optional(),
   "graceSeconds": zod.number().min(createSoftwareBodyGraceSecondsMin).max(createSoftwareBodyGraceSecondsMax),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean()
 })
 
 export const createSoftwareResponseGraceSecondsMin = 0;
+
+export const createSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
@@ -213,6 +227,8 @@ export const CreateSoftwareResponse = zod.object({
   "expectedValue": zod.string()
 })),
   "graceSeconds": zod.number().min(createSoftwareResponseGraceSecondsMin),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -228,6 +244,8 @@ export const UpdateSoftwareParams = zod.object({
 
 export const updateSoftwareBodyGraceSecondsMin = 0;
 export const updateSoftwareBodyGraceSecondsMax = 3600;
+
+export const updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
@@ -253,10 +271,14 @@ export const UpdateSoftwareBody = zod.object({
   "expectedValue": zod.string()
 })).optional(),
   "graceSeconds": zod.number().min(updateSoftwareBodyGraceSecondsMin).max(updateSoftwareBodyGraceSecondsMax),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean()
 })
 
 export const updateSoftwareResponseGraceSecondsMin = 0;
+
+export const updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
@@ -283,6 +305,8 @@ export const UpdateSoftwareResponse = zod.object({
   "expectedValue": zod.string()
 })),
   "graceSeconds": zod.number().min(updateSoftwareResponseGraceSecondsMin),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -408,6 +432,205 @@ export const RotateClientApiKeyResponse = zod.object({
 
 
 /**
+ * Explicitly saves a supplied key and returns it in full so an administrator can copy it without reinstalling existing clients.
+ * @summary Save a chosen shared client API key
+ */
+export const saveClientApiKeyBodyApiKeyMin = 16;
+export const saveClientApiKeyBodyApiKeyMax = 256;
+
+
+
+export const SaveClientApiKeyBody = zod.object({
+  "apiKey": zod.string().min(saveClientApiKeyBodyApiKeyMin).max(saveClientApiKeyBodyApiKeyMax)
+})
+
+export const saveClientApiKeyResponseApiKeyMin = 16;
+
+
+
+export const SaveClientApiKeyResponse = zod.object({
+  "apiKey": zod.string().min(saveClientApiKeyResponseApiKeyMin),
+  "maskedApiKey": zod.string(),
+  "rotatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Get LDAP connection settings
+ */
+export const GetLdapSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "url": zod.string(),
+  "bindDn": zod.string(),
+  "bindPasswordSet": zod.boolean(),
+  "baseDn": zod.string(),
+  "userFilter": zod.string(),
+  "usernameAttribute": zod.string(),
+  "displayNameAttribute": zod.string(),
+  "emailAttribute": zod.string(),
+  "verifyTlsCertificate": zod.boolean(),
+  "caCertificateInstalled": zod.boolean()
+})
+
+
+/**
+ * @summary Save LDAP connection settings
+ */
+export const UpdateLdapSettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "url": zod.string(),
+  "bindDn": zod.string(),
+  "bindPassword": zod.string().optional(),
+  "baseDn": zod.string(),
+  "userFilter": zod.string(),
+  "usernameAttribute": zod.string(),
+  "displayNameAttribute": zod.string(),
+  "emailAttribute": zod.string(),
+  "verifyTlsCertificate": zod.boolean(),
+  "caCertificatePem": zod.string().optional()
+})
+
+export const UpdateLdapSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "url": zod.string(),
+  "bindDn": zod.string(),
+  "bindPasswordSet": zod.boolean(),
+  "baseDn": zod.string(),
+  "userFilter": zod.string(),
+  "usernameAttribute": zod.string(),
+  "displayNameAttribute": zod.string(),
+  "emailAttribute": zod.string(),
+  "verifyTlsCertificate": zod.boolean(),
+  "caCertificateInstalled": zod.boolean()
+})
+
+
+/**
+ * @summary Test LDAP authentication
+ */
+export const TestLdapConnectionBody = zod.object({
+  "username": zod.string(),
+  "password": zod.string()
+})
+
+export const TestLdapConnectionResponse = zod.object({
+  "success": zod.boolean(),
+  "stage": zod.enum(['config', 'connect', 'service-bind', 'search', 'user-bind', 'ok']),
+  "message": zod.string(),
+  "details": zod.string().optional()
+})
+
+
+/**
+ * @summary Get SSL certificate status
+ */
+export const GetSslSettingsResponse = zod.object({
+  "certificateInstalled": zod.boolean(),
+  "privateKeyInstalled": zod.boolean(),
+  "chainInstalled": zod.boolean(),
+  "certificateFingerprint": zod.string().nullable(),
+  "certificateSubject": zod.string().nullable(),
+  "certificateExpiresAt": zod.coerce.date().nullable(),
+  "forceHttps": zod.boolean(),
+  "hstsEnabled": zod.boolean()
+})
+
+
+/**
+ * @summary Upload or update the admin panel SSL certificate
+ */
+export const UpdateSslSettingsBody = zod.object({
+  "certificatePem": zod.string(),
+  "privateKeyPem": zod.string(),
+  "chainPem": zod.string(),
+  "forceHttps": zod.boolean(),
+  "hstsEnabled": zod.boolean()
+})
+
+export const UpdateSslSettingsResponse = zod.object({
+  "certificateInstalled": zod.boolean(),
+  "privateKeyInstalled": zod.boolean(),
+  "chainInstalled": zod.boolean(),
+  "certificateFingerprint": zod.string().nullable(),
+  "certificateSubject": zod.string().nullable(),
+  "certificateExpiresAt": zod.coerce.date().nullable(),
+  "forceHttps": zod.boolean(),
+  "hstsEnabled": zod.boolean()
+})
+
+
+/**
+ * @summary List administrator users
+ */
+export const ListAdministratorUsersResponseItem = zod.object({
+  "id": zod.string(),
+  "username": zod.string(),
+  "displayName": zod.string(),
+  "email": zod.string(),
+  "source": zod.enum(['ldap']),
+  "directoryDn": zod.string().nullable(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+export const ListAdministratorUsersResponse = zod.array(ListAdministratorUsersResponseItem)
+
+
+/**
+ * @summary Add an LDAP administrator
+ */
+
+
+
+export const CreateAdministratorUserBody = zod.object({
+  "username": zod.string().min(1)
+})
+
+export const CreateAdministratorUserResponse = zod.object({
+  "id": zod.string(),
+  "username": zod.string(),
+  "displayName": zod.string(),
+  "email": zod.string(),
+  "source": zod.enum(['ldap']),
+  "directoryDn": zod.string().nullable(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Enable or disable an administrator
+ */
+export const UpdateAdministratorUserParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const UpdateAdministratorUserBody = zod.object({
+  "isActive": zod.boolean()
+})
+
+export const UpdateAdministratorUserResponse = zod.object({
+  "id": zod.string(),
+  "username": zod.string(),
+  "displayName": zod.string(),
+  "email": zod.string(),
+  "source": zod.enum(['ldap']),
+  "directoryDn": zod.string().nullable(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Remove an administrator
+ */
+export const DeleteAdministratorUserParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const DeleteAdministratorUserResponse = zod.void()
+
+
+/**
  * @summary Start an administrator session
  */
 
@@ -475,6 +698,8 @@ export const getSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
 
 export const getSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
 
+export const getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax = 300;
+
 
 
 export const GetSyncConfigResponse = zod.object({
@@ -507,6 +732,8 @@ export const GetSyncConfigResponse = zod.object({
   "expectedValue": zod.string()
 })),
   "graceSeconds": zod.number().min(getSyncConfigResponsePoliciesItemGraceSecondsMin),
+  "updateMode": zod.boolean().optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))

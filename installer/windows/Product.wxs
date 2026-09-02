@@ -1,0 +1,51 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="NemesysV2 Client"
+    Manufacturer="NemesysV2"
+    Version="$(var.MsiVersion)"
+    UpgradeCode="{C1D2B3A4-5E6F-4789-8012-34567890ABCD}"
+    Scope="perMachine"
+    Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer NemesysV2 Client is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="NemesysV2 Client" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="NemesysV2 Client" Level="1">
+      <ComponentGroupRef Id="ClientFiles" />
+    </Feature>
+
+    <Property Id="NEMESYS_SERVER" Secure="yes" />
+    <Property Id="NEMESYS_PORT" Value="5187" Secure="yes" />
+    <Property Id="NEMESYS_API_KEY" Hidden="yes" Secure="yes" />
+
+    <UI>
+      <DialogRef Id="WixUI_InstallDir" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+    </UI>
+
+    <CustomAction
+      Id="ConfigureClient"
+      FileRef="NemesysV2ClientExe"
+      ExeCommand="/quiet /server &quot;[NEMESYS_SERVER]&quot; /port [NEMESYS_PORT] /apiKey &quot;[NEMESYS_API_KEY]&quot;"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check"
+      HideTarget="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="ConfigureClient" After="InstallFiles" Condition="NEMESYS_SERVER AND NEMESYS_API_KEY" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="ClientFiles" Directory="INSTALLFOLDER">
+      <Component Id="ClientExecutable" Bitness="always64">
+        <File Id="NemesysV2ClientExe" Source="$(var.ClientPublishDir)\NemesysV2.Client.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

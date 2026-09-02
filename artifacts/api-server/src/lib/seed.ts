@@ -3,7 +3,9 @@ import { eq } from "drizzle-orm";
 import {
   auditEntriesTable,
   clientsTable,
+  ldapSettingsTable,
   serverSettingsTable,
+  sslSettingsTable,
   softwarePoliciesTable,
 } from "@workspace/db";
 import { logger } from "./logger";
@@ -23,6 +25,19 @@ export async function ensureSeedData(): Promise<void> {
       updateModeCloseTimeoutSeconds: 8,
     })
     .onConflictDoNothing();
+
+  await db.insert(ldapSettingsTable).values({
+    id: "default",
+    enabled: false,
+    url: "",
+    bindDn: "",
+    baseDn: "",
+  }).onConflictDoNothing();
+  await db.insert(sslSettingsTable).values({
+    id: "default",
+    forceHttps: false,
+    hstsEnabled: false,
+  }).onConflictDoNothing();
 
   await db
     .insert(clientsTable)

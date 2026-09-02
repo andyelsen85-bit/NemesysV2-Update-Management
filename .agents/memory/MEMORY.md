@@ -1,2 +1,3 @@
 - [API codegen Zod constraint](api-codegen-zod-constraint.md) — OpenAPI integer types currently emit unsupported zod.int() in this workspace.
 - [Drizzle non-TTY schema pushes](drizzle-non-tty-schema-pushes.md) — additive development schema changes may need explicit SQL when Drizzle cannot resolve rename prompts without a TTY.
+- [Nemesys security and MSI](nemesys-security-and-msi.md) — LDAP/PKI secrets depend on SESSION_SECRET; the Windows MSI must be built on a Windows runner with WiX and .NET.

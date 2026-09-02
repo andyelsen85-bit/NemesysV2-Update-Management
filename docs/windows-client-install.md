@@ -28,11 +28,11 @@ The control center is protected by a username/password session. Set `NEMESYS_ADM
 Each sync response supplies:
 
 - the current policy set, including all EXE and INI checks;
-- the server-controlled Update Mode;
+- each application's server-controlled Update Mode and close timeout;
 - the normal close-on-start timeout; and
 - the effective close-on-start timeout for the current mode.
 
-When Update Mode is active, the client uses the shortened timeout and coordinates the interactive user-session companion for warnings/countdowns and process closure across Windows sessions.
+When a policy's Update Mode is active, the client uses that application's shortened timeout and coordinates the interactive user-session companion for warnings/countdowns and process closure across Windows sessions. Multiple EXE checks in one policy are supervised and closed together.
 
 ## Rotation warning
 

@@ -20,6 +20,8 @@ tags:
     description: Synchronization audit history
   - name: settings
     description: Server configuration
+  - name: users
+    description: Administrator user management
   - name: sync
     description: Client synchronization protocol
 paths:
@@ -211,6 +213,161 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiKeyRotation"
+  /settings/api-key:
+    post:
+      operationId: saveClientApiKey
+      tags: [settings]
+      summary: Save a chosen shared client API key
+      description: Explicitly saves a supplied key and returns it in full so an administrator can copy it without reinstalling existing clients.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiKeyInput"
+      responses:
+        "200":
+          description: Saved client API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyRotation"
+  /settings/ldap:
+    get:
+      operationId: getLdapSettings
+      tags: [settings]
+      summary: Get LDAP connection settings
+      responses:
+        "200":
+          description: LDAP settings with secret values masked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LdapSettings"
+    put:
+      operationId: updateLdapSettings
+      tags: [settings]
+      summary: Save LDAP connection settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LdapSettingsInput"
+      responses:
+        "200":
+          description: Updated LDAP settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LdapSettings"
+  /settings/ldap/test:
+    post:
+      operationId: testLdapConnection
+      tags: [settings]
+      summary: Test LDAP authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LdapTestInput"
+      responses:
+        "200":
+          description: LDAP diagnostic result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LdapDiagnostic"
+  /settings/ssl:
+    get:
+      operationId: getSslSettings
+      tags: [settings]
+      summary: Get SSL certificate status
+      responses:
+        "200":
+          description: SSL status with private material masked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SslSettings"
+    put:
+      operationId: updateSslSettings
+      tags: [settings]
+      summary: Upload or update the admin panel SSL certificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SslSettingsInput"
+      responses:
+        "200":
+          description: Updated SSL settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SslSettings"
+  /users:
+    get:
+      operationId: listAdministratorUsers
+      tags: [users]
+      summary: List administrator users
+      responses:
+        "200":
+          description: Administrator users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdministratorUser"
+    post:
+      operationId: createAdministratorUser
+      tags: [users]
+      summary: Add an LDAP administrator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministratorUserInput"
+      responses:
+        "201":
+          description: Created administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministratorUser"
+  /users/{id}:
+    patch:
+      operationId: updateAdministratorUser
+      tags: [users]
+      summary: Enable or disable an administrator
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdministratorUserUpdate"
+      responses:
+        "200":
+          description: Updated administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdministratorUser"
+    delete:
+      operationId: deleteAdministratorUser
+      tags: [users]
+      summary: Remove an administrator
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "204":
+          description: Administrator removed
   /auth/login:
     post:
       operationId: login
@@ -458,6 +615,8 @@ components:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
         graceSeconds: { type: number, minimum: 0 }
+        updateMode: { type: boolean }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
         enabled: { type: boolean }
         lastUpdated:
           type: string
@@ -482,6 +641,8 @@ components:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
         graceSeconds: { type: number, minimum: 0, maximum: 3600 }
+        updateMode: { type: boolean }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
         enabled: { type: boolean }
     AuditEntry:
       type: object
@@ -541,6 +702,100 @@ components:
         rotatedAt:
           type: string
           format: date-time
+    ApiKeyInput:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey: { type: string, minLength: 16, maxLength: 256 }
+    LdapSettings:
+      type: object
+      required: [enabled, url, bindDn, bindPasswordSet, baseDn, userFilter, usernameAttribute, displayNameAttribute, emailAttribute, verifyTlsCertificate, caCertificateInstalled]
+      properties:
+        enabled: { type: boolean }
+        url: { type: string }
+        bindDn: { type: string }
+        bindPasswordSet: { type: boolean }
+        baseDn: { type: string }
+        userFilter: { type: string }
+        usernameAttribute: { type: string }
+        displayNameAttribute: { type: string }
+        emailAttribute: { type: string }
+        verifyTlsCertificate: { type: boolean }
+        caCertificateInstalled: { type: boolean }
+    LdapSettingsInput:
+      type: object
+      required: [enabled, url, bindDn, baseDn, userFilter, usernameAttribute, displayNameAttribute, emailAttribute, verifyTlsCertificate]
+      properties:
+        enabled: { type: boolean }
+        url: { type: string }
+        bindDn: { type: string }
+        bindPassword: { type: string }
+        baseDn: { type: string }
+        userFilter: { type: string }
+        usernameAttribute: { type: string }
+        displayNameAttribute: { type: string }
+        emailAttribute: { type: string }
+        verifyTlsCertificate: { type: boolean }
+        caCertificatePem: { type: string }
+    LdapTestInput:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+    LdapDiagnostic:
+      type: object
+      required: [success, stage, message]
+      properties:
+        success: { type: boolean }
+        stage:
+          type: string
+          enum: [config, connect, service-bind, search, user-bind, ok]
+        message: { type: string }
+        details: { type: string }
+    SslSettings:
+      type: object
+      required: [certificateInstalled, privateKeyInstalled, chainInstalled, certificateFingerprint, certificateSubject, certificateExpiresAt, forceHttps, hstsEnabled]
+      properties:
+        certificateInstalled: { type: boolean }
+        privateKeyInstalled: { type: boolean }
+        chainInstalled: { type: boolean }
+        certificateFingerprint: { type: ["string", "null"] }
+        certificateSubject: { type: ["string", "null"] }
+        certificateExpiresAt: { type: ["string", "null"], format: date-time }
+        forceHttps: { type: boolean }
+        hstsEnabled: { type: boolean }
+    SslSettingsInput:
+      type: object
+      required: [certificatePem, privateKeyPem, chainPem, forceHttps, hstsEnabled]
+      properties:
+        certificatePem: { type: string }
+        privateKeyPem: { type: string }
+        chainPem: { type: string }
+        forceHttps: { type: boolean }
+        hstsEnabled: { type: boolean }
+    AdministratorUser:
+      type: object
+      required: [id, username, displayName, email, source, directoryDn, isActive, createdAt]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        displayName: { type: string }
+        email: { type: string }
+        source: { type: string, enum: [ldap] }
+        directoryDn: { type: ["string", "null"] }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    AdministratorUserInput:
+      type: object
+      required: [username]
+      properties:
+        username: { type: string, minLength: 1 }
+    AdministratorUserUpdate:
+      type: object
+      required: [isActive]
+      properties:
+        isActive: { type: boolean }
     SyncConfig:
       type: object
       required: [clientId, syncIntervalSeconds, configVersion, updateMode, normalCloseTimeoutSeconds, closeOnStartTimeoutSeconds, policies]

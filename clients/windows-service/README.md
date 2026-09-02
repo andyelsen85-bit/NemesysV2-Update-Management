@@ -20,4 +20,8 @@ The installer:
 - creates the per-user session companion at logon; and
 - starts the service.
 
-The service enrolls by `X-Nemesys-Hostname`, polls the authenticated sync endpoint, evaluates EXE file versions and INI section/key/value checks, sends audit reports, and applies the server’s current Update Mode timeout without restarting. It uses process enumeration and `Kill(entireProcessTree: true)` under `LocalSystem` so managed processes can be closed across Windows sessions.
+The service enrolls by `X-Nemesys-Hostname`, polls the authenticated sync endpoint, evaluates EXE file versions and INI section/key/value checks, sends audit reports, and applies each application's Update Mode timeout without restarting. It uses process enumeration and `Kill(entireProcessTree: true)` under `LocalSystem` so managed processes can be closed across Windows sessions.
+
+An x64 MSI wrapper is available under `installer/windows` and uses the same
+DPAPI-backed silent installation flow. Build it on a Windows runner with
+`build-msi.ps1`.

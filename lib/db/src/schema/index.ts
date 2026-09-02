@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -23,6 +23,8 @@ export const softwarePoliciesTable = pgTable("nemesys_software_policies", {
   iniChecks: jsonb("ini_checks").$type<Array<{ filePath: string; section: string; key: string; expectedValue: string }>>().notNull().default([]),
   iniRules: jsonb("ini_rules").$type<Array<{ section: string; key: string; expectedValue: string }>>().notNull().default([]),
   graceSeconds: integer("grace_seconds").notNull().default(30),
+  updateMode: boolean("update_mode").notNull().default(false),
+  updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
   enabled: boolean("enabled").notNull().default(true),
   lastUpdated: timestamp("last_updated", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -56,6 +58,49 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
 });
 
+export const adminUsersTable = pgTable("nemesys_admin_users", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull(),
+  displayName: text("display_name").notNull(),
+  email: text("email").notNull().default(""),
+  source: text("source").notNull().default("ldap"),
+  directoryDn: text("directory_dn"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  usernameUnique: unique().on(table.username),
+}));
+
+export const ldapSettingsTable = pgTable("nemesys_ldap_settings", {
+  id: text("id").primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  url: text("url").notNull().default(""),
+  bindDn: text("bind_dn").notNull().default(""),
+  bindPasswordEncrypted: text("bind_password_encrypted"),
+  baseDn: text("base_dn").notNull().default(""),
+  userFilter: text("user_filter").notNull().default("(&(objectClass=person)(sAMAccountName={{username}}))"),
+  usernameAttribute: text("username_attribute").notNull().default("sAMAccountName"),
+  displayNameAttribute: text("display_name_attribute").notNull().default("displayName"),
+  emailAttribute: text("email_attribute").notNull().default("mail"),
+  verifyTlsCertificate: boolean("verify_tls_certificate").notNull().default(true),
+  caCertificatePem: text("ca_certificate_pem"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const sslSettingsTable = pgTable("nemesys_ssl_settings", {
+  id: text("id").primaryKey(),
+  certificatePem: text("certificate_pem"),
+  privateKeyPemEncrypted: text("private_key_pem_encrypted"),
+  chainPem: text("chain_pem"),
+  certificateFingerprint: text("certificate_fingerprint"),
+  certificateSubject: text("certificate_subject"),
+  certificateExpiresAt: timestamp("certificate_expires_at", { withTimezone: true }),
+  forceHttps: boolean("force_https").notNull().default(false),
+  hstsEnabled: boolean("hsts_enabled").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const insertClientSchema = createInsertSchema(clientsTable);
 export const insertSoftwarePolicySchema = createInsertSchema(softwarePoliciesTable);
 export const insertAuditEntrySchema = createInsertSchema(auditEntriesTable);
@@ -65,6 +110,9 @@ export type Client = typeof clientsTable.$inferSelect;
 export type SoftwarePolicy = typeof softwarePoliciesTable.$inferSelect;
 export type AuditEntry = typeof auditEntriesTable.$inferSelect;
 export type ServerSettings = typeof serverSettingsTable.$inferSelect;
+export type AdminUser = typeof adminUsersTable.$inferSelect;
+export type LdapSettings = typeof ldapSettingsTable.$inferSelect;
+export type SslSettings = typeof sslSettingsTable.$inferSelect;
 export type InsertClient = z.infer<typeof insertClientSchema>;
 export type InsertSoftwarePolicy = z.infer<typeof insertSoftwarePolicySchema>;
 export type InsertAuditEntry = z.infer<typeof insertAuditEntrySchema>;

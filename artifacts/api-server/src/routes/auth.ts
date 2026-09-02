@@ -2,7 +2,8 @@ import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from "node:util";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq } from "drizzle-orm";
-import { db, serverSettingsTable } from "@workspace/db";
+import { adminUsersTable, db, serverSettingsTable } from "@workspace/db";
+import { authenticateLdap } from "../lib/ldap";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "nemesys_session";
@@ -74,9 +75,24 @@ router.post("/login", async (req, res): Promise<void> => {
     adminUsername: serverSettingsTable.adminUsername,
     adminPasswordHash: serverSettingsTable.adminPasswordHash,
   }).from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  if (!settings?.adminPasswordHash || settings.adminUsername !== username || !await verifyPassword(password, settings.adminPasswordHash)) {
-    res.status(401).json({ error: "Invalid administrator credentials" });
-    return;
+  const localMatch = Boolean(settings?.adminPasswordHash && settings.adminUsername === username && await verifyPassword(password, settings.adminPasswordHash));
+  if (!localMatch) {
+    const [ldapUser] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, username)).limit(1);
+    if (!ldapUser?.isActive) {
+      res.status(401).json({ error: "Invalid administrator credentials" });
+      return;
+    }
+    const ldapResult = await authenticateLdap(username, password);
+    if (!ldapResult.user) {
+      res.status(401).json({ error: "Invalid administrator credentials" });
+      return;
+    }
+    await db.update(adminUsersTable).set({
+      displayName: ldapResult.user.displayName,
+      email: ldapResult.user.email,
+      directoryDn: ldapResult.user.directoryDn,
+      updatedAt: new Date(),
+    }).where(eq(adminUsersTable.id, ldapUser.id));
   }
 
   res.cookie(SESSION_COOKIE, createSession(username), {

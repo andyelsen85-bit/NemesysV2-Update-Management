@@ -138,13 +138,17 @@ async function sendSyncConfig(clientId: string, res: Response): Promise<void> {
     return;
   }
   const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
+  const applicationUpdateMode = policies.some((policy) => policy.updateMode);
+  const shortestApplicationTimeout = policies
+    .filter((policy) => policy.updateMode)
+    .reduce((shortest, policy) => Math.min(shortest, policy.updateModeCloseTimeoutSeconds), settings.updateModeCloseTimeoutSeconds);
   res.json(GetSyncConfigResponse.parse({
     clientId,
     syncIntervalSeconds: settings.syncIntervalSeconds,
     configVersion: `${settings.updateMode ? "update" : "normal"}-${settings.syncIntervalSeconds}-${settings.normalCloseTimeoutSeconds}-${settings.updateModeCloseTimeoutSeconds}`,
-    updateMode: settings.updateMode,
+    updateMode: applicationUpdateMode,
     normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
-    closeOnStartTimeoutSeconds: settings.updateMode ? settings.updateModeCloseTimeoutSeconds : settings.normalCloseTimeoutSeconds,
+    closeOnStartTimeoutSeconds: applicationUpdateMode ? shortestApplicationTimeout : settings.normalCloseTimeoutSeconds,
     policies: policies.map(toApiPolicy),
   }));
 }
@@ -184,6 +188,8 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     iniChecks,
     iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
     graceSeconds: parsed.data.graceSeconds,
+    updateMode: parsed.data.updateMode ?? false,
+    updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
     enabled: parsed.data.enabled,
   }).returning();
   res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy(policy)));
@@ -216,6 +222,8 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
       iniChecks,
       iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
       graceSeconds: parsed.data.graceSeconds,
+      updateMode: parsed.data.updateMode ?? false,
+      updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
       enabled: parsed.data.enabled,
       lastUpdated: new Date(),
     })
@@ -297,6 +305,31 @@ router.post("/settings/api-key/rotate", requireAdmin, async (_req, res): Promise
   res.json(RotateClientApiKeyResponse.parse({
     apiKey,
     maskedApiKey: `${apiKey.slice(0, 11)}••••••••${apiKey.slice(-4)}`,
+    rotatedAt,
+  }));
+});
+
+router.post("/settings/api-key", requireAdmin, async (req, res): Promise<void> => {
+  const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
+  if (apiKey.length < 16 || apiKey.length > 256) {
+    res.status(400).json({ error: "API key must be between 16 and 256 characters." });
+    return;
+  }
+  const rotatedAt = new Date();
+  const [settings] = await db.update(serverSettingsTable)
+    .set({
+      clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+      apiKeyLastRotatedAt: rotatedAt,
+    })
+    .where(eq(serverSettingsTable.id, "default"))
+    .returning();
+  if (!settings) {
+    res.status(404).json({ error: "Server settings not found" });
+    return;
+  }
+  res.json(RotateClientApiKeyResponse.parse({
+    apiKey,
+    maskedApiKey: `${apiKey.slice(0, 6)}••••••••${apiKey.slice(-4)}`,
     rotatedAt,
   }));
 });
