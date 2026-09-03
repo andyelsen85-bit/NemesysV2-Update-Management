@@ -9,7 +9,7 @@
     Scope="perMachine"
     Compressed="yes">
     <MajorUpgrade
-      Schedule="afterInstallInitialize"
+      Schedule="afterInstallExecute"
       DowngradeErrorMessage="A newer NemesysV2 Client is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
@@ -56,8 +56,8 @@
       Return="check"
       HideTarget="yes" />
     <InstallExecuteSequence>
-      <Custom Action="PrepareMsiService" Before="RemoveExistingProducts" Condition="NOT Installed" />
-      <Custom Action="ConfigureClient" After="InstallFiles" Condition="NEMESYS_SERVER AND NEMESYS_API_KEY" />
+      <Custom Action="PrepareMsiService" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="ConfigureClient" After="PrepareMsiService" Condition="NEMESYS_SERVER AND NEMESYS_API_KEY" />
       <Custom Action="RemoveClientData" Before="RemoveFiles" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
@@ -79,8 +79,7 @@
           Id="NemesysV2ServiceControl"
           Name="NemesysV2Client"
           Start="install"
-          Stop="both"
-          Remove="uninstall"
+          Stop="install"
           Wait="yes" />
         <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
       </Component>

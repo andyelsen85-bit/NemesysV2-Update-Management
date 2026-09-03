@@ -12,11 +12,11 @@ attaches it to `v*` GitHub releases. No MSI compilation is required in the
 Linux development workspace.
 
 The MSI owns the `NemesysV2Client` service lifecycle through Windows Installer:
-it stops and removes the service before true uninstall, preserves ProgramData
-during upgrades, and recreates/restarts the service after an upgrade. True
-uninstall removes `C:\ProgramData\NemesysV2` before MSI removes the executable
-and installation directory. Standalone EXE installations can use the elevated
-`/uninstall` command documented in the client README.
+it stops the service before file changes, preserves ProgramData during
+upgrades, and recreates/restarts the service after an upgrade. True uninstall
+stops and removes the service and `C:\ProgramData\NemesysV2` before MSI removes
+the executable and installation directory. Standalone EXE installations can
+use the elevated `/uninstall` command documented in the client README.
 
 Build on a Windows runner with the .NET 8 SDK:
 
