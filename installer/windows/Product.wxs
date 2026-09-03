@@ -8,7 +8,9 @@
     UpgradeCode="{C1D2B3A4-5E6F-4789-8012-34567890ABCD}"
     Scope="perMachine"
     Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer NemesysV2 Client is already installed." />
+    <MajorUpgrade
+      Schedule="afterInstallInitialize"
+      DowngradeErrorMessage="A newer NemesysV2 Client is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -25,16 +27,28 @@
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
 
+    <Binary
+      Id="NemesysV2ServicePreparation"
+      SourceFile="$(var.ClientPublishDir)\NemesysV2.Client.exe" />
+
     <CustomAction
-      Id="ConfigureClient"
-      FileRef="NemesysV2ClientExe"
-      ExeCommand="/quiet /server &quot;[NEMESYS_SERVER]&quot; /port [NEMESYS_PORT] /apiKey &quot;[NEMESYS_API_KEY]&quot;"
+      Id="PrepareMsiService"
+      BinaryRef="NemesysV2ServicePreparation"
+      ExeCommand="/prepare-msi"
       Execute="deferred"
       Impersonate="no"
       Return="check"
       HideTarget="yes" />
     <CustomAction
-      Id="RemoveClient"
+      Id="ConfigureClient"
+      FileRef="NemesysV2ClientExe"
+      ExeCommand="/configure /server &quot;[NEMESYS_SERVER]&quot; /port [NEMESYS_PORT] /apiKey &quot;[NEMESYS_API_KEY]&quot;"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check"
+      HideTarget="yes" />
+    <CustomAction
+      Id="RemoveClientData"
       FileRef="NemesysV2ClientExe"
       ExeCommand="/uninstall"
       Execute="deferred"
@@ -42,8 +56,9 @@
       Return="check"
       HideTarget="yes" />
     <InstallExecuteSequence>
+      <Custom Action="PrepareMsiService" Before="RemoveExistingProducts" Condition="NOT Installed" />
       <Custom Action="ConfigureClient" After="InstallFiles" Condition="NEMESYS_SERVER AND NEMESYS_API_KEY" />
-      <Custom Action="RemoveClient" Before="RemoveFiles" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="RemoveClientData" Before="RemoveFiles" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 
@@ -51,6 +66,22 @@
     <ComponentGroup Id="ClientFiles" Directory="INSTALLFOLDER">
       <Component Id="ClientExecutable" Bitness="always64">
         <File Id="NemesysV2ClientExe" Source="$(var.ClientPublishDir)\NemesysV2.Client.exe" KeyPath="yes" />
+        <ServiceInstall
+          Id="NemesysV2Service"
+          Name="NemesysV2Client"
+          DisplayName="NemesysV2 Client"
+          Description="NemesysV2 Windows software update client"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Account="LocalSystem" />
+        <ServiceControl
+          Id="NemesysV2ServiceControl"
+          Name="NemesysV2Client"
+          Start="install"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
         <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
       </Component>
     </ComponentGroup>

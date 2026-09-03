@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Win32;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
@@ -23,6 +24,18 @@ internal static class Program
         if (args.Any(arg => arg.Equals("/uninstall", StringComparison.OrdinalIgnoreCase)))
         {
             ClientConfiguration.Uninstall();
+            return;
+        }
+
+        if (args.Any(arg => arg.Equals("/prepare-msi", StringComparison.OrdinalIgnoreCase)))
+        {
+            ClientConfiguration.PrepareMsiService();
+            return;
+        }
+
+        if (args.Any(arg => arg.Equals("/configure", StringComparison.OrdinalIgnoreCase)))
+        {
+            ClientConfiguration.Configure(args);
             return;
         }
 
@@ -104,6 +117,17 @@ internal sealed class ClientConfiguration
 
     public static void Install(string[] args)
     {
+        Configure(args);
+
+        var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Installer executable path is unavailable.");
+        StopAndDeleteService();
+        Run("sc.exe", $"create NemesysV2Client binPath= \"{executable}\" start= auto obj= LocalSystem");
+        Run("sc.exe", "description NemesysV2Client \"NemesysV2 Windows software update client\"");
+        Run("sc.exe", "start NemesysV2Client");
+    }
+
+    public static void Configure(string[] args)
+    {
         var server = GetArgument(args, "/server");
         var apiKey = GetArgument(args, "/apiKey");
         var portText = GetArgument(args, "/port");
@@ -119,18 +143,14 @@ internal sealed class ClientConfiguration
             Hostname = Environment.MachineName,
         };
         Save(configuration);
-
-        var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Installer executable path is unavailable.");
-        StopAndDeleteService();
-        Run("sc.exe", $"create NemesysV2Client binPath= \"{executable}\" start= auto obj= LocalSystem");
-        Run("sc.exe", "description NemesysV2Client \"NemesysV2 Windows software update client\"");
         // Older builds used a LocalSystem ONLOGON task for the interactive
         // companion. Services cannot display on the user's desktop, and a task
         // created by LocalSystem does not solve that problem. Warnings now
         // launch a short-lived companion in the active user's session.
         DeleteLegacyScheduledTask();
-        Run("sc.exe", "start NemesysV2Client");
     }
+
+    public static void PrepareMsiService() => StopAndDeleteService();
 
     public static void Uninstall()
     {
@@ -160,10 +180,31 @@ internal sealed class ClientConfiguration
 
     private static void StopAndDeleteService()
     {
+        var serviceExecutablePath = GetRegisteredServiceExecutablePath() ?? Environment.ProcessPath;
         Run("sc.exe", "stop NemesysV2Client", throwOnError: false);
         Run("sc.exe", "delete NemesysV2Client", throwOnError: false);
         WaitForServiceDeletion(TimeSpan.FromSeconds(30));
-        WaitForClientProcessesToExit(TimeSpan.FromSeconds(30));
+        WaitForClientProcessesToExit(serviceExecutablePath, TimeSpan.FromSeconds(30));
+    }
+
+    private static string? GetRegisteredServiceExecutablePath()
+    {
+        using var serviceKey = Registry.LocalMachine.OpenSubKey(
+            @"SYSTEM\CurrentControlSet\Services\NemesysV2Client");
+        var rawImagePath = serviceKey?.GetValue("ImagePath") as string;
+        if (string.IsNullOrWhiteSpace(rawImagePath)) return null;
+
+        var imagePath = Environment.ExpandEnvironmentVariables(rawImagePath).Trim();
+        if (imagePath.StartsWith('"'))
+        {
+            var closingQuote = imagePath.IndexOf('"', 1);
+            return closingQuote > 1 ? imagePath[1..closingQuote] : null;
+        }
+
+        var executableEnd = imagePath.IndexOf(
+            ".exe",
+            StringComparison.OrdinalIgnoreCase);
+        return executableEnd >= 0 ? imagePath[..(executableEnd + 4)] : imagePath;
     }
 
     private static void WaitForServiceDeletion(TimeSpan timeout)
@@ -180,9 +221,10 @@ internal sealed class ClientConfiguration
         throw new InvalidOperationException("NemesysV2Client was not deleted.");
     }
 
-    private static void WaitForClientProcessesToExit(TimeSpan timeout)
+    private static void WaitForClientProcessesToExit(
+        string? executablePath,
+        TimeSpan timeout)
     {
-        var executablePath = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executablePath)) return;
 
         var processName = Path.GetFileNameWithoutExtension(executablePath);
