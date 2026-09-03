@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows.Forms;
 
 namespace NemesysV2.Client;
@@ -16,6 +17,12 @@ internal static class Program
         if (args.Any(arg => arg.Equals("--session-companion", StringComparison.OrdinalIgnoreCase)))
         {
             await SessionCompanion.RunAsync();
+            return;
+        }
+
+        if (args.Any(arg => arg.Equals("/uninstall", StringComparison.OrdinalIgnoreCase)))
+        {
+            ClientConfiguration.Uninstall();
             return;
         }
 
@@ -45,6 +52,11 @@ internal sealed class ClientConfiguration
     private static readonly string DirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NemesysV2");
     private static readonly string FilePath = Path.Combine(DirectoryPath, "client.json");
+    private static readonly string LegacyTaskPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+        "System32",
+        "Tasks",
+        "NemesysV2 User Session");
 
     public string Server { get; init; } = "";
     public int Port { get; init; } = 443;
@@ -52,7 +64,10 @@ internal sealed class ClientConfiguration
     public string Hostname { get; init; } = Environment.MachineName;
     public int SyncIntervalSeconds { get; init; } = 300;
 
+    [JsonIgnore]
     public string ApiKey => DpapiSecretStore.Unprotect(EncryptedApiKey);
+
+    [JsonIgnore]
     public string ApiBase
     {
         get
@@ -80,7 +95,11 @@ internal sealed class ClientConfiguration
 
         var configuration = JsonSerializer.Deserialize<ClientConfiguration>(
             File.ReadAllText(FilePath), JsonOptions.Default);
-        return configuration ?? throw new InvalidOperationException("NemesysV2 client configuration is invalid.");
+        if (configuration is null)
+            throw new InvalidOperationException("NemesysV2 client configuration is invalid.");
+
+        Save(configuration);
+        return configuration;
     }
 
     public static void Install(string[] args)
@@ -99,17 +118,90 @@ internal sealed class ClientConfiguration
             EncryptedApiKey = DpapiSecretStore.Protect(apiKey),
             Hostname = Environment.MachineName,
         };
-        File.WriteAllText(FilePath, JsonSerializer.Serialize(configuration, JsonOptions.Default));
+        Save(configuration);
 
         var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Installer executable path is unavailable.");
+        StopAndDeleteService();
         Run("sc.exe", $"create NemesysV2Client binPath= \"{executable}\" start= auto obj= LocalSystem");
         Run("sc.exe", "description NemesysV2Client \"NemesysV2 Windows software update client\"");
         // Older builds used a LocalSystem ONLOGON task for the interactive
         // companion. Services cannot display on the user's desktop, and a task
         // created by LocalSystem does not solve that problem. Warnings now
         // launch a short-lived companion in the active user's session.
-        Run("schtasks.exe", "/Delete /TN \"NemesysV2 User Session\" /F", throwOnError: false);
+        DeleteLegacyScheduledTask();
         Run("sc.exe", "start NemesysV2Client");
+    }
+
+    public static void Uninstall()
+    {
+        StopAndDeleteService();
+        DeleteLegacyScheduledTask();
+        DeleteDataDirectory();
+    }
+
+    private static void DeleteLegacyScheduledTask()
+    {
+        if (!File.Exists(LegacyTaskPath)) return;
+
+        Run("schtasks.exe", "/Delete /TN \"NemesysV2 User Session\" /F");
+        if (File.Exists(LegacyTaskPath))
+            throw new IOException("The obsolete NemesysV2 user-session task was not deleted.");
+    }
+
+    private static void Save(ClientConfiguration configuration)
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        var temporaryPath = $"{FilePath}.tmp";
+        File.WriteAllText(
+            temporaryPath,
+            JsonSerializer.Serialize(configuration, JsonOptions.Default));
+        File.Move(temporaryPath, FilePath, overwrite: true);
+    }
+
+    private static void StopAndDeleteService()
+    {
+        Run("sc.exe", "stop NemesysV2Client", throwOnError: false);
+        Run("sc.exe", "delete NemesysV2Client", throwOnError: false);
+        WaitForServiceDeletion(TimeSpan.FromSeconds(30));
+    }
+
+    private static void WaitForServiceDeletion(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var query = RunAndCapture("sc.exe", "query NemesysV2Client");
+            if (query.ExitCode != 0) return;
+
+            Thread.Sleep(500);
+        }
+
+        throw new InvalidOperationException("NemesysV2Client was not deleted.");
+    }
+
+    private static void DeleteDataDirectory()
+    {
+        if (!Directory.Exists(DirectoryPath)) return;
+
+        Exception? lastError = null;
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            try
+            {
+                Directory.Delete(DirectoryPath, recursive: true);
+                return;
+            }
+            catch (Exception exception) when (
+                exception is IOException or UnauthorizedAccessException)
+            {
+                lastError = exception;
+                Thread.Sleep(500);
+            }
+        }
+
+        throw new IOException(
+            $"Unable to remove NemesysV2 client data at {DirectoryPath}.",
+            lastError);
     }
 
     private static string GetArgument(string[] args, string name)
@@ -120,15 +212,30 @@ internal sealed class ClientConfiguration
 
     private static void Run(string fileName, string arguments, bool throwOnError = true)
     {
+        var result = RunAndCapture(fileName, arguments);
+        if (throwOnError && result.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"{fileName} failed with exit code {result.ExitCode}: {result.Output}");
+    }
+
+    private static ProcessResult RunAndCapture(string fileName, string arguments)
+    {
         using var process = Process.Start(new ProcessStartInfo(fileName, arguments)
         {
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         }) ?? throw new InvalidOperationException($"Unable to start {fileName}.");
+        var standardOutput = process.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
         process.WaitForExit();
-        if (throwOnError && process.ExitCode != 0)
-            throw new InvalidOperationException($"{fileName} failed with exit code {process.ExitCode}.");
+        return new ProcessResult(
+            process.ExitCode,
+            $"{standardOutput}{Environment.NewLine}{standardError}".Trim());
     }
+
+    private sealed record ProcessResult(int ExitCode, string Output);
 }
 
 internal static class DpapiSecretStore

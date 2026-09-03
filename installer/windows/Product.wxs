@@ -33,8 +33,17 @@
       Impersonate="no"
       Return="check"
       HideTarget="yes" />
+    <CustomAction
+      Id="RemoveClient"
+      FileRef="NemesysV2ClientExe"
+      ExeCommand="/uninstall"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check"
+      HideTarget="yes" />
     <InstallExecuteSequence>
       <Custom Action="ConfigureClient" After="InstallFiles" Condition="NEMESYS_SERVER AND NEMESYS_API_KEY" />
+      <Custom Action="RemoveClient" Before="RemoveFiles" Condition="REMOVE = &quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 

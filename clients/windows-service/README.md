@@ -16,6 +16,21 @@ NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /apiKey "<one-
 `/api` and defaults to standard HTTPS port `443`. `/port` remains available
 only as an optional compatibility override.
 
+The saved `client.json` contains only the machine-DPAPI-encrypted API key.
+Computed clear-text values are excluded from serialization. Loading a
+configuration created by an older version rewrites it without the legacy
+clear-text `apiKey` and computed `apiBase` fields.
+
+To remove a standalone EXE installation from an elevated prompt:
+
+```powershell
+NemesysV2.Client.exe /uninstall
+```
+
+This stops and deletes the `NemesysV2Client` service, removes the obsolete
+user-session scheduled task if present, and deletes
+`C:\ProgramData\NemesysV2`.
+
 The Windows service intentionally does not validate the server certificate.
 This allows synchronization with self-signed, private-CA, expired, or
 hostname-mismatched certificates. Protect the connection with a trusted
@@ -55,6 +70,11 @@ companion can launch, connect, authenticate, or reply, enforcement is skipped;
 it never closes the application merely because a warning timed out. A completed
 countdown or **Close application now** proceeds, while **Postpone** defers only
 when policy allows it.
+
+Running-process detection uses OR behavior: any one configured executable is
+enough to trigger the warning for a noncompliant policy. The configured EXEs do
+not all need to be running simultaneously. After an approved warning outcome,
+all configured managed processes that are currently running are closed.
 
 The GUI companion is built without a console window. Connection and
 authentication have a separate bounded deadline; the response deadline begins
