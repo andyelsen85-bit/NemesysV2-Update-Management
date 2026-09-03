@@ -51,6 +51,7 @@
     <ComponentGroup Id="ClientFiles" Directory="INSTALLFOLDER">
       <Component Id="ClientExecutable" Bitness="always64">
         <File Id="NemesysV2ClientExe" Source="$(var.ClientPublishDir)\NemesysV2.Client.exe" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
       </Component>
     </ComponentGroup>
   </Fragment>

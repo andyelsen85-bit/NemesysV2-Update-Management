@@ -163,6 +163,7 @@ internal sealed class ClientConfiguration
         Run("sc.exe", "stop NemesysV2Client", throwOnError: false);
         Run("sc.exe", "delete NemesysV2Client", throwOnError: false);
         WaitForServiceDeletion(TimeSpan.FromSeconds(30));
+        WaitForClientProcessesToExit(TimeSpan.FromSeconds(30));
     }
 
     private static void WaitForServiceDeletion(TimeSpan timeout)
@@ -179,12 +180,58 @@ internal sealed class ClientConfiguration
         throw new InvalidOperationException("NemesysV2Client was not deleted.");
     }
 
+    private static void WaitForClientProcessesToExit(TimeSpan timeout)
+    {
+        var executablePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(executablePath)) return;
+
+        var processName = Path.GetFileNameWithoutExtension(executablePath);
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            var otherClientProcessFound = false;
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    if (process.Id == Environment.ProcessId) continue;
+                    var processPath = process.MainModule?.FileName;
+                    if (string.Equals(processPath, executablePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        otherClientProcessFound = true;
+                        break;
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    otherClientProcessFound = true;
+                    break;
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    otherClientProcessFound = true;
+                    break;
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+
+            if (!otherClientProcessFound) return;
+            Thread.Sleep(500);
+        }
+
+        throw new InvalidOperationException(
+            "The NemesysV2 client process did not exit before uninstall cleanup.");
+    }
+
     private static void DeleteDataDirectory()
     {
         if (!Directory.Exists(DirectoryPath)) return;
 
         Exception? lastError = null;
-        for (var attempt = 0; attempt < 10; attempt++)
+        for (var attempt = 0; attempt < 60; attempt++)
         {
             try
             {
@@ -195,7 +242,7 @@ internal sealed class ClientConfiguration
                 exception is IOException or UnauthorizedAccessException)
             {
                 lastError = exception;
-                Thread.Sleep(500);
+                Thread.Sleep(1000);
             }
         }
 
