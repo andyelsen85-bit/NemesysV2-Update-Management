@@ -11,6 +11,8 @@ import type { SyncReportInputResult } from './syncReportInputResult';
 export interface SyncReportInput {
   clientId: string;
   clientName: string;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  clientVersion?: string;
   result: SyncReportInputResult;
   applications: ApplicationReport[];
 }

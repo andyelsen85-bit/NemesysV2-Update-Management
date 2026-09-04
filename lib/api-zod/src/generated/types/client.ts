@@ -21,5 +21,10 @@ export interface Client {
   /** @nullable */
   lastSuccessfulSync: Date | null;
   syncVersion: string;
+  /**
+     * Version reported by the installed NemesysV2 Windows client.
+     * @nullable
+     */
+  installedVersion: string | null;
   certificateStatus: ClientCertificateStatus;
 }

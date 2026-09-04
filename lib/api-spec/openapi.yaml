@@ -556,6 +556,7 @@ components:
       type: object
       properties:
         address: { type: string }
+        clientVersion: { type: string, pattern: '^\d+(?:\.\d+)*$' }
     HealthStatus:
       type: object
       properties:
@@ -597,7 +598,7 @@ components:
           format: date-time
     Client:
       type: object
-      required: [id, name, hostname, address, status, lastSync, lastPoll, lastSuccessfulSync, syncVersion, certificateStatus]
+      required: [id, name, hostname, address, status, lastSync, lastPoll, lastSuccessfulSync, syncVersion, installedVersion, certificateStatus]
       properties:
         id: { type: string }
         name: { type: string }
@@ -616,6 +617,9 @@ components:
           type: ["string", "null"]
           format: date-time
         syncVersion: { type: string }
+        installedVersion:
+          type: ["string", "null"]
+          description: Version reported by the installed NemesysV2 Windows client.
         certificateStatus:
           type: string
           enum: [valid, expiring, revoked]
@@ -748,20 +752,22 @@ components:
         compliant: { type: boolean }
     ServerSettings:
       type: object
-      required: [syncPort, adminHttpsEnabled, apiKeyConfigured, apiKeyLastRotatedAt]
+      required: [syncPort, adminHttpsEnabled, desiredClientVersion, apiKeyConfigured, apiKeyLastRotatedAt]
       properties:
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
+        desiredClientVersion: { type: string, pattern: '^\d+(?:\.\d+)*$' }
         apiKeyConfigured: { type: boolean }
         apiKeyLastRotatedAt:
           type: ["string", "null"]
           format: date-time
     ServerSettingsInput:
       type: object
-      required: [syncPort, adminHttpsEnabled]
+      required: [syncPort, adminHttpsEnabled, desiredClientVersion]
       properties:
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
+        desiredClientVersion: { type: string, pattern: '^\d+(?:\.\d+)*$' }
     ApiKeyRotation:
       type: object
       required: [apiKey, maskedApiKey, rotatedAt]
@@ -891,6 +897,7 @@ components:
       properties:
         clientId: { type: string }
         clientName: { type: string }
+        clientVersion: { type: string, pattern: '^\d+(?:\.\d+)*$' }
         result:
           type: string
           enum: [success, warning, rejected]

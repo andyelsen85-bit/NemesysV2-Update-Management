@@ -13,4 +13,6 @@ export interface ServerSettingsInput {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  desiredClientVersion: string;
 }

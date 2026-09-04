@@ -12,6 +12,7 @@ export const clientsTable = pgTable("nemesys_clients", {
   lastPoll: timestamp("last_poll", { withTimezone: true }),
   lastSuccessfulSync: timestamp("last_successful_sync", { withTimezone: true }),
   syncVersion: text("sync_version").notNull().default("1.0.0"),
+  installedVersion: text("installed_version"),
   certificateStatus: text("certificate_status").notNull().default("valid"),
 });
 
@@ -58,6 +59,7 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   id: text("id").primaryKey(),
   syncPort: integer("sync_port").notNull().default(443),
   adminHttpsEnabled: boolean("admin_https_enabled").notNull().default(true),
+  desiredClientVersion: text("desired_client_version").notNull().default("1.0.0"),
   adminUsername: text("admin_username").notNull().default("admin"),
   adminPasswordHash: text("admin_password_hash"),
   clientApiKeyHash: text("client_api_key_hash"),

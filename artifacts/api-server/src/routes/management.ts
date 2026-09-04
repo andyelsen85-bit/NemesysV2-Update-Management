@@ -411,6 +411,7 @@ router.get("/settings", requireAdmin, async (_req, res): Promise<void> => {
   res.json(GetServerSettingsResponse.parse({
     syncPort: settings.syncPort,
     adminHttpsEnabled: settings.adminHttpsEnabled,
+    desiredClientVersion: settings.desiredClientVersion,
     apiKeyConfigured: Boolean(settings.clientApiKeyHash),
     apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
   }));
@@ -430,6 +431,7 @@ router.patch("/settings", requireAdmin, async (req, res): Promise<void> => {
   res.json(UpdateServerSettingsResponse.parse({
     syncPort: settings.syncPort,
     adminHttpsEnabled: settings.adminHttpsEnabled,
+    desiredClientVersion: settings.desiredClientVersion,
     apiKeyConfigured: Boolean(settings.clientApiKeyHash),
     apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
   }));
@@ -521,6 +523,11 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
     res.status(400).json({ error: "address must be a string" });
     return;
   }
+  const clientVersion = req.body?.clientVersion;
+  if (clientVersion !== undefined && (typeof clientVersion !== "string" || !isDottedNumericVersion(clientVersion))) {
+    res.status(400).json({ error: "clientVersion must be a dotted numeric version" });
+    return;
+  }
   const id = `host-${createHash("sha256").update(hostname.toLowerCase()).digest("hex").slice(0, 16)}`;
   const now = new Date();
   const [existingClient] = await db
@@ -542,6 +549,7 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
       status: "online",
       lastSync: now,
       syncVersion: "1.0.0",
+      installedVersion: clientVersion ?? null,
       certificateStatus: "valid",
     })
     .onConflictDoUpdate({
@@ -550,6 +558,7 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
         name: hostname,
         hostname,
         address: address ?? req.ip ?? "unknown",
+        installedVersion: clientVersion ?? undefined,
         lastSync: now,
       },
     })
@@ -574,7 +583,11 @@ router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void>
     );
     const reportTimestamp = new Date();
     const [updatedClient] = await transaction.update(clientsTable)
-      .set({ lastSync: reportTimestamp, status: "online" })
+      .set({
+        lastSync: reportTimestamp,
+        status: "online",
+        installedVersion: parsed.data.clientVersion,
+      })
       .where(and(
         eq(clientsTable.id, parsed.data.clientId),
         ne(clientsTable.status, "revoked"),

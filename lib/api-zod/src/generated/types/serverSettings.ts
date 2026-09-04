@@ -13,6 +13,8 @@ export interface ServerSettings {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  desiredClientVersion: string;
   apiKeyConfigured: boolean;
   /** @nullable */
   apiKeyLastRotatedAt: Date | null;

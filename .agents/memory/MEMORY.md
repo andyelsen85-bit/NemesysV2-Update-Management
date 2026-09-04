@@ -6,3 +6,4 @@
 - [Update Mode exit ownership](update-mode-exit-ownership.md) — self-update exit cycles exclusively own enforcement and require fresh cycle identity after re-enable.
 - [Automatic schema upgrades](automatic-schema-upgrades.md) — API startup owns idempotent policy-contract upgrades under a PostgreSQL advisory lock.
 - [Comparison-operator rollout](comparison-operator-rollout.md) — deploy operator-aware Windows clients before configuring relational EXE or INI checks.
+- [Client version baseline](client-version-baseline.md) — reported client versions use minimum-baseline semantics; unknown versions remain distinct from outdated ones.

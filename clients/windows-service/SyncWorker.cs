@@ -17,6 +17,8 @@ namespace NemesysV2.Client;
 
 internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<SyncWorker> logger) : BackgroundService
 {
+    private static readonly string ClientVersion =
+        typeof(SyncWorker).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
     private readonly HttpClient http = CreateHttpClient();
     private readonly Dictionary<string, bool> lastReportedCompliance = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, EnforcementState> enforcementStates = new(StringComparer.OrdinalIgnoreCase);
@@ -95,7 +97,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     {
         using var request = CreateRequest(HttpMethod.Post, "/sync/enroll");
         request.Content = JsonContent.Create(
-            new { address = await ResolveAddressAsync(configuration.Server, configuration.Port) },
+            new
+            {
+                address = await ResolveAddressAsync(configuration.Server, configuration.Port),
+                clientVersion = ClientVersion,
+            },
             options: JsonOptions.Default);
         using var response = await http.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -163,6 +169,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         {
             clientId,
             clientName = configuration.Hostname,
+            clientVersion = ClientVersion,
             result = nonCompliantPolicies.Count > 0 ? "warning" : "success",
             applications = results.Select(item => item.Result),
         }, options: JsonOptions.Default);

@@ -42,6 +42,7 @@ export const ListClientsResponseItem = zod.object({
   "lastPoll": zod.coerce.date().nullable(),
   "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
+  "installedVersion": zod.string().nullable().describe('Version reported by the installed NemesysV2 Windows client.'),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })
 export const ListClientsResponse = zod.array(ListClientsResponseItem)
@@ -64,6 +65,7 @@ export const RevokeClientResponse = zod.object({
   "lastPoll": zod.coerce.date().nullable(),
   "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
+  "installedVersion": zod.string().nullable().describe('Version reported by the installed NemesysV2 Windows client.'),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })
 
@@ -423,11 +425,13 @@ export const ListAuditEntriesResponse = zod.array(ListAuditEntriesResponseItem)
  */
 export const getServerSettingsResponseSyncPortMax = 65535;
 
+export const getServerSettingsResponseDesiredClientVersionRegExp = new RegExp('^\\d+(?:\\.\\d+)*$');
 
 
 export const GetServerSettingsResponse = zod.object({
   "syncPort": zod.number().min(1).max(getServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
+  "desiredClientVersion": zod.string().regex(getServerSettingsResponseDesiredClientVersionRegExp),
   "apiKeyConfigured": zod.boolean(),
   "apiKeyLastRotatedAt": zod.coerce.date().nullable()
 })
@@ -438,20 +442,24 @@ export const GetServerSettingsResponse = zod.object({
  */
 export const updateServerSettingsBodySyncPortMax = 65535;
 
+export const updateServerSettingsBodyDesiredClientVersionRegExp = new RegExp('^\\d+(?:\\.\\d+)*$');
 
 
 export const UpdateServerSettingsBody = zod.object({
   "syncPort": zod.number().min(1).max(updateServerSettingsBodySyncPortMax),
-  "adminHttpsEnabled": zod.boolean()
+  "adminHttpsEnabled": zod.boolean(),
+  "desiredClientVersion": zod.string().regex(updateServerSettingsBodyDesiredClientVersionRegExp)
 })
 
 export const updateServerSettingsResponseSyncPortMax = 65535;
 
+export const updateServerSettingsResponseDesiredClientVersionRegExp = new RegExp('^\\d+(?:\\.\\d+)*$');
 
 
 export const UpdateServerSettingsResponse = zod.object({
   "syncPort": zod.number().min(1).max(updateServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
+  "desiredClientVersion": zod.string().regex(updateServerSettingsResponseDesiredClientVersionRegExp),
   "apiKeyConfigured": zod.boolean(),
   "apiKeyLastRotatedAt": zod.coerce.date().nullable()
 })
@@ -808,8 +816,12 @@ export const EnrollClientHeader = zod.object({
   "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
 })
 
+export const enrollClientBodyClientVersionRegExp = new RegExp('^\\d+(?:\\.\\d+)*$');
+
+
 export const EnrollClientBody = zod.object({
-  "address": zod.string().optional()
+  "address": zod.string().optional(),
+  "clientVersion": zod.string().regex(enrollClientBodyClientVersionRegExp).optional()
 })
 
 export const EnrollClientResponse = zod.object({
@@ -822,6 +834,7 @@ export const EnrollClientResponse = zod.object({
   "lastPoll": zod.coerce.date().nullable(),
   "lastSuccessfulSync": zod.coerce.date().nullable(),
   "syncVersion": zod.string(),
+  "installedVersion": zod.string().nullable().describe('Version reported by the installed NemesysV2 Windows client.'),
   "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
 })
 
@@ -834,9 +847,13 @@ export const SubmitSyncReportHeader = zod.object({
   "X-Nemesys-Hostname": zod.string().describe('Windows hostname\/computer name used as client identity.')
 })
 
+export const submitSyncReportBodyClientVersionRegExp = new RegExp('^\\d+(?:\\.\\d+)*$');
+
+
 export const SubmitSyncReportBody = zod.object({
   "clientId": zod.string(),
   "clientName": zod.string(),
+  "clientVersion": zod.string().regex(submitSyncReportBodyClientVersionRegExp).optional(),
   "result": zod.enum(['success', 'warning', 'rejected']),
   "applications": zod.array(zod.object({
   "softwareId": zod.string(),

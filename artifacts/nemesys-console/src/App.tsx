@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
-  Activity, AlertTriangle, Archive, ArrowDownRight, ArrowUpRight, Ban,
+  Activity, AlertTriangle, Archive, ArrowDown, ArrowDownRight, ArrowUp, ArrowUpDown, ArrowUpRight, Ban,
   Bell, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Code2,
   FileCog, FileKey2, Gauge, Globe2, HardDrive, Laptop, LockKeyhole, Menu,
   MoreHorizontal, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Server,
   Settings2, ShieldCheck, ShieldX, Trash2, Upload, Users, LogOut, Wifi, X
 } from 'lucide-react';
+import { PieChart, Pie, Cell } from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import {
   getGetClientSyncConfigQueryKey, getGetDashboardQueryKey, getGetServerSettingsQueryKey,
   getListAuditEntriesQueryKey, getListClientsQueryKey,
@@ -40,6 +42,7 @@ const isDottedNumericVersion = (value: string) => /^\d+(?:\.\d+)*$/.test(value);
 const navItems = [
   { href: '/', label: 'Overview', icon: Gauge },
   { href: '/clients', label: 'Clients', icon: Laptop },
+  { href: '/client-updates', label: 'Client updates', icon: Upload },
   { href: '/software', label: 'Software policies', icon: FileCog },
   { href: '/audit', label: 'Audit trail', icon: Archive },
   { href: '/administrators', label: 'Administrators', icon: Users },
@@ -299,21 +302,88 @@ function AuditRow({ entry, compact = false }: { entry: AuditEntry; compact?: boo
   return <div className={cx('flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7]', compact ? '' : 'min-w-[680px]')}><div className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', kind === 'success' ? 'bg-[#dff2e9] text-[#277657]' : kind === 'warning' ? 'bg-[#fff0d5] text-[#94661a]' : 'bg-[#f9e1dd] text-[#a13a31]')}>{kind === 'success' ? <Check size={15} /> : kind === 'warning' ? <AlertTriangle size={15} /> : <Ban size={15} />}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-[#365049]">{entry.clientName}</div><div className="mt-1 font-mono text-[10px] text-[#8a9891]">{formatTime(entry.timestamp)} <span className="mx-1 text-[#bbc5bd]">/</span> {entry.applications.length} app{entry.applications.length === 1 ? '' : 's'} evaluated</div></div><StatusPill value={entry.result} kind={kind} /></div>;
 }
 
+function SortHeader({ label, field, sortField, sortDir, onSort, className }: { label: string; field: string; sortField: string; sortDir: 'asc' | 'desc'; onSort: (f: string) => void; className?: string }) {
+  const active = sortField === field;
+  return (
+    <button type="button" onClick={() => onSort(field)} aria-pressed={active} aria-label={`Sort by ${label}${active ? `, currently ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`} className={cx('flex items-center gap-1.5 rounded font-extrabold uppercase hover:text-[#536b68] focus:outline-none focus:ring-2 focus:ring-[#75ad95]', className)}>
+      {label}
+      {active ? (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} className="opacity-40" />}
+    </button>
+  );
+}
+
+function compareVersions(v1: number[] | null, v2: number[] | null): 'outdated' | 'current' | 'ahead' | 'unknown' {
+  if (!v1 || !v2) return 'unknown';
+  const len = Math.max(v1.length, v2.length);
+  for (let i = 0; i < len; i++) {
+    const p1 = v1[i] || 0;
+    const p2 = v2[i] || 0;
+    if (p1 > p2) return 'ahead';
+    if (p1 < p2) return 'outdated';
+  }
+  return 'current';
+}
+
+function parseVersion(version: string | null | undefined): number[] | null {
+  if (!version || !isDottedNumericVersion(version)) return null;
+  return version.split('.').map(Number);
+}
+
+function compareVersionValues(first: string | null | undefined, second: string | null | undefined) {
+  const a = parseVersion(first);
+  const b = parseVersion(second);
+  if (!a && !b) return (first ?? '').localeCompare(second ?? '');
+  if (!a) return -1;
+  if (!b) return 1;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return (first ?? '').localeCompare(second ?? '');
+}
+
 function ClientsPage() {
   const query = useListClients();
   const revoke = useRevokeClient();
   const clientList = listData<Client>(query.data, 'clients');
   const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('hostname');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selected, setSelected] = useState<Client | null>(null);
-  const filtered = clientList.filter((client) => `${client.name} ${client.hostname} ${client.address}`.toLowerCase().includes(search.toLowerCase()));
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('asc'); }
+  };
+
+  const sortedClients = useMemo(() => {
+    return [...clientList].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'hostname') cmp = a.hostname.localeCompare(b.hostname);
+      if (sortField === 'installedVersion') cmp = compareVersionValues(a.installedVersion, b.installedVersion);
+      if (sortField === 'address') cmp = a.address.localeCompare(b.address);
+      if (sortField === 'lastPoll') cmp = (new Date(a.lastPoll || 0).getTime()) - (new Date(b.lastPoll || 0).getTime());
+      if (sortField === 'lastSuccessfulSync') cmp = (new Date(a.lastSuccessfulSync || 0).getTime()) - (new Date(b.lastSuccessfulSync || 0).getTime());
+      if (sortField === 'status') cmp = a.status.localeCompare(b.status);
+      if (cmp === 0) cmp = a.id.localeCompare(b.id);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [clientList, sortField, sortDir]);
+
+  const filtered = sortedClients.filter((client) => {
+    const searchStr = `${Object.values(client).join(' ')} ${formatTime(client.lastPoll)} ${relativeTime(client.lastPoll)} ${formatTime(client.lastSuccessfulSync)} ${relativeTime(client.lastSuccessfulSync)} ${formatTime(client.lastSync)} ${relativeTime(client.lastSync)} ${client.status === 'online' ? 'access active' : ''}`.toLowerCase();
+    return searchStr.includes(search.toLowerCase());
+  });
+
   const clientId = useMemo(() => selected?.id ?? '', [selected?.id]);
   const config = useGetClientSyncConfig(clientId, { query: { enabled: Boolean(selected), queryKey: getGetClientSyncConfigQueryKey(clientId) } });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListClientsQueryKey() });
   const revokeClient = (client: Client) => { if (window.confirm(`Deactivate client access for ${client.hostname}?`)) revoke.mutate({ id: client.id }, { onSuccess: invalidate }); };
   return <div className="mx-auto max-w-[1380px]">
     <PageHeader eyebrow="Estate inventory" title="Clients" detail="Every enrolled Windows service, identified by hostname, with its latest signal and access state." action={<Button onClick={() => query.refetch()} variant="secondary" disabled={query.isFetching} data-testid="button-refresh-clients"><RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} /> Refresh</Button>} />
-    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search clients" data-testid="input-search-clients" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, hostname, or address" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{clientList.length}</span> enrolled <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#2c785b]">{clientList.filter((c) => c.status === 'online').length}</span> online</div></div>
-    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : filtered.length === 0 ? <EmptyState icon={Laptop} title={search ? 'No matching clients' : 'No clients enrolled'} detail={search ? 'Try a hostname, address, or a shorter name.' : 'Enroll a Windows service to begin receiving synchronization reports.'} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : undefined} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[980px] grid-cols-[1.35fr_.9fr_.8fr_.8fr_130px] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><span>Hostname</span><span>Network address</span><span>Last poll</span><span>Last full sync</span><span /></div><div className="min-w-[880px] divide-y divide-[#edf0eb]">{filtered.map((client) => <div key={client.id} data-testid={`row-client-${client.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7] md:grid-cols-[1.35fr_.9fr_.8fr_.8fr_130px] md:items-center md:gap-4"><button data-testid={`button-client-details-${client.id}`} onClick={() => setSelected(client)} className="flex min-w-0 items-center gap-3 text-left"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e3f0e9] text-[11px] font-extrabold text-[#2d7258]">{initials(client.hostname)}</div><div className="min-w-0"><div data-testid={`text-client-hostname-${client.id}`} className="truncate text-xs font-extrabold text-[#304b45]">{client.hostname}</div><div className="mt-1 truncate font-mono text-[10px] text-[#899992]">{client.name} <span className="text-[#b4c1b9]">·</span> v{client.syncVersion}</div></div></button><div className="font-mono text-[11px] text-[#536b68]">{client.address}</div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastPoll)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastPoll)}</div></div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastSuccessfulSync)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastSuccessfulSync)}</div></div><div className="flex items-center justify-end gap-1"><StatusPill value={client.status === 'online' ? 'access active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /><button aria-label={`Inspect ${client.hostname}`} data-testid={`button-inspect-client-${client.id}`} onClick={() => setSelected(client)} className="rounded-md p-2 text-[#79908a] hover:bg-[#e4eee8] hover:text-[#246d53]"><ChevronRight size={16} /></button><button aria-label={`Deactivate access for ${client.hostname}`} data-testid={`button-deactivate-client-${client.id}`} disabled={client.status === 'revoked' || revoke.isPending} onClick={() => revokeClient(client)} className="rounded-md p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]"><ShieldX size={15} /></button></div></div>)}</div></div>}
+    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search clients" data-testid="input-search-clients" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, hostname, address, status, or timestamps" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{clientList.length}</span> enrolled <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#2c785b]">{clientList.filter((c) => c.status === 'online').length}</span> online</div></div>
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : filtered.length === 0 ? <EmptyState icon={Laptop} title={search ? 'No matching clients' : 'No clients enrolled'} detail={search ? 'Try a hostname, address, or a shorter name.' : 'Enroll a Windows service to begin receiving synchronization reports.'} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : undefined} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[1120px] grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Hostname" field="hostname" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Client version" field="installedVersion" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Network address" field="address" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last poll" field="lastPoll" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last full sync" field="lastSuccessfulSync" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Access" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} className="justify-end" /></div><div className="min-w-[1120px] divide-y divide-[#edf0eb]">{filtered.map((client) => <div key={client.id} data-testid={`row-client-${client.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7] md:grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] md:items-center md:gap-4"><button data-testid={`button-client-details-${client.id}`} onClick={() => setSelected(client)} className="flex min-w-0 items-center gap-3 text-left"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e3f0e9] text-[11px] font-extrabold text-[#2d7258]">{initials(client.hostname)}</div><div className="min-w-0"><div data-testid={`text-client-hostname-${client.id}`} className="truncate text-xs font-extrabold text-[#304b45]">{client.hostname}</div><div className="mt-1 truncate font-mono text-[10px] text-[#899992]">{client.name}</div></div></button><div className="font-mono text-[11px] text-[#536b68]">{client.installedVersion ?? <span className="italic text-[#9aa7a0]">Unknown</span>}</div><div className="font-mono text-[11px] text-[#536b68]">{client.address}</div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastPoll)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastPoll)}</div></div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastSuccessfulSync)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastSuccessfulSync)}</div></div><div className="flex items-center justify-end gap-1"><StatusPill value={client.status === 'online' ? 'access active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /><button aria-label={`Inspect ${client.hostname}`} data-testid={`button-inspect-client-${client.id}`} onClick={() => setSelected(client)} className="rounded-md p-2 text-[#79908a] hover:bg-[#e4eee8] hover:text-[#246d53]"><ChevronRight size={16} /></button><button aria-label={`Deactivate access for ${client.hostname}`} data-testid={`button-deactivate-client-${client.id}`} disabled={client.status === 'revoked' || revoke.isPending} onClick={() => revokeClient(client)} className="rounded-md p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]"><ShieldX size={15} /></button></div></div>)}</div></div>}
     {selected && <ClientModal client={selected} config={config.data} loading={config.isLoading} onClose={() => setSelected(null)} onRevoke={() => revokeClient(selected)} />}
   </div>;
 }
@@ -321,7 +391,7 @@ function ClientsPage() {
 function ClientModal({ client, config, loading, onClose, onRevoke }: { client: Client; config?: SyncConfig; loading: boolean; onClose: () => void; onRevoke: () => void }) {
   return <Modal title="Client inspection" subtitle={`${client.name} · ${client.hostname}`} onClose={onClose}>
     <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg bg-[#f5f8f3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Client access</div><div className="mt-2"><StatusPill value={client.status === 'online' ? 'active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /></div></div><div data-testid={`text-inspected-hostname-${client.id}`} className="rounded-lg bg-[#f5f8f3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Hostname identity</div><div className="mt-2 font-mono text-xs font-bold text-[#39514d]">{client.hostname}</div><div className="mt-1 text-[10px] text-[#87958e]">Shared API-key transport</div></div></div>
-    <div className="mt-5 grid gap-4 border-y border-[#e6ece6] py-4 sm:grid-cols-2"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Address</div><div className="mt-1 font-mono text-xs text-[#39514d]">{client.address}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last poll</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastPoll)}</div><div className="mt-1 text-[10px] text-[#87958e]">Includes HTTP 304 responses</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last full sync</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSuccessfulSync)}</div><div className="mt-1 text-[10px] text-[#87958e]">Fresh configuration returned with HTTP 200</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last compliance report</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSync)}</div></div></div>
+    <div className="mt-5 grid gap-4 border-y border-[#e6ece6] py-4 sm:grid-cols-2"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Installed client version</div><div className="mt-1 font-mono text-xs text-[#39514d]">{client.installedVersion ?? 'Unknown'}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Address</div><div className="mt-1 font-mono text-xs text-[#39514d]">{client.address}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last poll</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastPoll)}</div><div className="mt-1 text-[10px] text-[#87958e]">Includes HTTP 304 responses</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last full sync</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSuccessfulSync)}</div><div className="mt-1 text-[10px] text-[#87958e]">Fresh configuration returned with HTTP 200</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last compliance report</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSync)}</div></div></div>
     <div className="rounded-lg border border-[#dbe3dd] p-4"><div className="flex items-center justify-between"><div><div className="text-xs font-extrabold text-[#365049]">Effective sync configuration</div><div className="mt-1 text-[11px] text-[#87958e]">What this client will receive next</div></div><Code2 size={17} className="text-[#729087]" /></div>{loading ? <div className="mt-4 h-12 animate-pulse rounded bg-[#edf2ed]" /> : config ? <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><span className="text-[#87958e]">Interval</span><div className="mt-1 font-mono text-[#39514d]">{config.syncIntervalSeconds}s</div></div><div><span className="text-[#87958e]">Mode</span><div className="mt-1 font-mono text-[#39514d]">{config.updateMode ? 'Update Mode' : 'Normal'}</div></div><div><span className="text-[#87958e]">Config version</span><div className="mt-1 truncate font-mono text-[#39514d]">{config.configVersion}</div></div><div className="col-span-2"><span className="text-[#87958e]">Policies</span><div className="mt-1 font-mono text-[#39514d]">{config.policies.length} effective</div></div></div> : <p className="mt-4 text-xs text-[#a06b62]">Effective configuration is unavailable.</p>}</div>
     <div className="mt-5 flex justify-between gap-2"><Button variant="danger" onClick={onRevoke} disabled={client.status === 'revoked'}><ShieldX size={14} /> Deactivate access</Button><Button variant="secondary" onClick={onClose}>Close</Button></div>
   </Modal>;
@@ -523,9 +593,43 @@ function AuditPage() {
   const [showReport, setShowReport] = useState(false);
   const auditEntries = listData<AuditEntry>(query.data, 'audit entries');
   const clients = listData<Client>(clientsQuery.data, 'clients');
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('timestamp');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir(field === 'timestamp' ? 'desc' : 'asc'); }
+  };
+
+  const sortedEntries = useMemo(() => {
+    return [...auditEntries].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'clientName') cmp = a.clientName.localeCompare(b.clientName);
+      if (sortField === 'timestamp') cmp = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      if (sortField === 'result') {
+        const order = { success: 3, warning: 2, rejected: 1 };
+        cmp = order[a.result] - order[b.result];
+      }
+      if (sortField === 'applications') {
+        const ratioA = a.applications.length ? a.applications.filter(x => x.compliant).length / a.applications.length : 0;
+        const ratioB = b.applications.length ? b.applications.filter(x => x.compliant).length / b.applications.length : 0;
+        cmp = ratioA - ratioB;
+      }
+      if (cmp === 0) cmp = a.id.localeCompare(b.id);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [auditEntries, sortField, sortDir]);
+
+  const filtered = sortedEntries.filter((entry) => {
+    const searchStr = `${JSON.stringify(entry)} ${formatTime(entry.timestamp)} ${relativeTime(entry.timestamp)} ${entry.applications.filter((application) => application.compliant).length}/${entry.applications.length} compliant`.toLowerCase();
+    return searchStr.includes(search.toLowerCase());
+  });
+
   return <div className="mx-auto max-w-[1380px]">
     <PageHeader eyebrow="Current state" title="Audit trail" detail="The latest synchronization result for each enrolled client, including observed application versions and policy expectations." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => query.refetch()} disabled={query.isFetching} data-testid="button-refresh-audit"><RefreshCw size={14} /> Refresh</Button><Button onClick={() => setShowReport(true)} data-testid="button-record-report"><Plus size={15} /> Record report</Button></div>} />
-    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={7} /> : auditEntries.length === 0 ? <EmptyState icon={Archive} title="No client status reports yet" detail="The latest synchronization result will appear here as clients check in." action={<Button variant="secondary" onClick={() => setShowReport(true)}><Plus size={14} /> Record a report</Button>} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[900px] grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><span>Client</span><span>Last report</span><span>Result</span><span>Applications</span></div><div className="min-w-[760px] divide-y divide-[#edf0eb]">{auditEntries.map((entry) => <AuditDetailRow key={entry.id} entry={entry} />)}</div></div>}
+    <div className="mb-4"><div className="relative max-w-sm"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search audit trail" data-testid="input-search-audit" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients, results, applications..." className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div></div>
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={7} /> : filtered.length === 0 ? <EmptyState icon={Archive} title={search ? "No matching audit entries" : "No client status reports yet"} detail={search ? "Try a different search term." : "The latest synchronization result will appear here as clients check in."} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : <Button variant="secondary" onClick={() => setShowReport(true)}><Plus size={14} /> Record a report</Button>} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[900px] grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Client" field="clientName" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last report" field="timestamp" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Result" field="result" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Applications" field="applications" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></div><div className="min-w-[760px] divide-y divide-[#edf0eb]">{filtered.map((entry) => <AuditDetailRow key={entry.id} entry={entry} />)}</div></div>}
     {showReport && <ReportModal clients={clients} onClose={() => setShowReport(false)} mutation={submit} />}
   </div>;
 }
@@ -688,19 +792,132 @@ function ApiKeyPage() {
   return <div className="mx-auto max-w-[900px]"><PageHeader eyebrow="Client transport" title="Client API key" detail="Manage the shared key used by Windows services. Existing clients continue working until you intentionally replace the key." /><div className="grid gap-6 md:grid-cols-2"><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Current key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">{settings.data?.apiKeyConfigured ? `Configured · last changed ${formatTime(settings.data.apiKeyLastRotatedAt)}` : 'No shared key has been configured.'}</p></div></div>{configuredKey?.apiKey ? <div className="rounded-lg border border-[#b9d8c5] bg-[#f1faf3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#317357]">Configured key</div><code data-testid="text-configured-api-key" className="mt-2 block break-all font-mono text-xs text-[#284139]">{configuredKey.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(configuredKey.apiKey ?? ''); }}>Copy configured key</Button></div> : configuredKey?.configured ? <div className="rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3 text-xs leading-5 text-[#8f5d4e]">This key was saved before encrypted key recovery was enabled. It cannot be read back from its hash. Use “Save chosen key” to preserve the key you already have, or generate a replacement.</div> : null}<Button type="button" className="mt-4" onClick={generate} disabled={rotate.isPending}><RotateCcw size={14} />{rotate.isPending ? 'Generating…' : 'Generate new key'}</Button><p className="mt-3 text-[11px] leading-5 text-[#71817c]">Generating or saving a key replaces the current key immediately, so older clients must be reconfigured with the returned value.</p></section><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><h2 className="text-sm font-extrabold text-[#284139]">Save an existing/custom key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">Use this to preserve a chosen key during migration. It will be encrypted for future display while the server continues authenticating with its hash.</p><form onSubmit={saveCustom} className="mt-4 space-y-3"><input required minLength={16} maxLength={256} type="password" value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="At least 16 characters" className="field-input font-mono" /><Button type="submit" variant="secondary">Save chosen key</Button></form></section></div>{result && <section className="mt-6 rounded-xl border border-[#e4c6b6] bg-[#fff5ee] p-5"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">Full key — copy now</div><code data-testid="text-full-api-key" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-3 font-mono text-xs text-[#586c6d]">{result.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(result.apiKey); }}>Copy key</Button></section>}{feedback && <div role="status" className="mt-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}</div>;
 }
 
+function ClientUpdatesPage() {
+  const clientsQuery = useListClients();
+  const settingsQuery = useGetServerSettings();
+  const clientList = listData<Client>(clientsQuery.data, 'clients');
+  const desiredVersion = settingsQuery.data?.desiredClientVersion;
+  const desiredParsed = useMemo(() => parseVersion(desiredVersion), [desiredVersion]);
+
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('hostname');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('asc'); }
+  };
+
+  const enrichedClients = useMemo(() => {
+    return clientList.map(client => {
+      const installedParsed = parseVersion(client.installedVersion);
+      const status = compareVersions(installedParsed, desiredParsed);
+      return { ...client, statusLabel: status };
+    });
+  }, [clientList, desiredParsed]);
+
+  const sortedClients = useMemo(() => {
+    return [...enrichedClients].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'hostname') cmp = a.hostname.localeCompare(b.hostname);
+      if (sortField === 'installedVersion') cmp = compareVersionValues(a.installedVersion, b.installedVersion);
+      if (sortField === 'statusLabel') {
+        const order = { ahead: 4, current: 3, outdated: 2, unknown: 1 };
+        cmp = order[a.statusLabel] - order[b.statusLabel];
+      }
+      if (cmp === 0) cmp = a.id.localeCompare(b.id);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [enrichedClients, sortField, sortDir]);
+
+  const filtered = sortedClients.filter((client) => {
+    const searchStr = `${Object.values(client).join(' ')} ${client.installedVersion || 'unknown'} ${client.statusLabel} ${desiredVersion}`.toLowerCase();
+    return searchStr.includes(search.toLowerCase());
+  });
+
+  const chartData = useMemo(() => {
+    const map = new Map<string, number>();
+    let unknownCount = 0;
+    for (const client of clientList) {
+      if (!client.installedVersion || !isDottedNumericVersion(client.installedVersion)) {
+        unknownCount++;
+      } else {
+        map.set(client.installedVersion, (map.get(client.installedVersion) || 0) + 1);
+      }
+    }
+    const otherColors = ['#417f80', '#cf8d3e', '#6d7894', '#aa695d', '#79966d', '#9978a2'];
+    let colorIndex = 0;
+
+    const data = Array.from(map.entries()).map(([name, value]) => {
+      let fill = '#2b8a63';
+      if (name !== desiredVersion) {
+        fill = otherColors[colorIndex % otherColors.length];
+        colorIndex++;
+      }
+      return { name, value, fill };
+    });
+
+    if (unknownCount > 0) {
+      data.push({ name: 'Unknown', value: unknownCount, fill: '#9aa7a0' });
+    }
+    // Sort descending by value
+    data.sort((a, b) => b.value - a.value);
+    return data;
+  }, [clientList, desiredVersion]);
+
+  const chartConfig = {
+    value: { label: "Clients" },
+  };
+
+  const outdatedCount = enrichedClients.filter(c => c.statusLabel === 'outdated').length;
+  const currentCount = enrichedClients.filter(c => c.statusLabel === 'current').length;
+  const unknownCount = enrichedClients.filter(c => c.statusLabel === 'unknown').length;
+  const anyLoading = clientsQuery.isLoading || settingsQuery.isLoading;
+
+  return <div className="mx-auto max-w-[1380px]">
+    <PageHeader eyebrow="Fleet version control" title="Client updates" detail="Compare installed NemesysV2 client versions against the desired baseline. Client deployment remains managed through SCCM." action={<Button onClick={() => { clientsQuery.refetch(); settingsQuery.refetch(); }} variant="secondary" disabled={anyLoading}><RefreshCw size={14} className={anyLoading ? 'animate-spin' : ''} /> Refresh</Button>} />
+    {clientsQuery.isError || settingsQuery.isError ? <ErrorState onRetry={() => { clientsQuery.refetch(); settingsQuery.refetch(); }} /> : anyLoading ? <LoadingRows count={6} /> : <>
+      <div className="mb-6 grid gap-6 md:grid-cols-[1fr_2fr]">
+        <div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+          <h2 className="text-sm font-extrabold text-[#284139] mb-4">Version distribution</h2>
+          <div className="h-[220px]">
+            <ChartContainer config={chartConfig} className="h-full w-full">
+              <PieChart>
+                <ChartTooltip content={<ChartTooltipContent hideLabel />} />
+                <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={80} paddingAngle={2} stroke="none">
+                  {chartData.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                </Pie>
+              </PieChart>
+            </ChartContainer>
+          </div>
+          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">{chartData.map((entry) => <div key={entry.name} className="flex items-center gap-1.5 text-[10px] text-[#71817c]"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.fill }} /><span className="font-mono font-bold text-[#486159]">{entry.name}</span><span>{entry.value}</span></div>)}</div>
+          <div className="mt-2 text-center text-[11px] font-bold text-[#71817c]">Desired version: <span className="font-mono text-[#2c785b]">{desiredVersion || 'Not set'}</span></div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3 content-start">
+          <MetricCard label="Current or Ahead" value={currentCount + enrichedClients.filter(c => c.statusLabel === 'ahead').length} detail="matching desired version" icon={CheckCircle2} tone="green" />
+          <MetricCard label="Outdated" value={outdatedCount} detail="requiring update" icon={Upload} tone={outdatedCount > 0 ? 'amber' : 'slate'} />
+          <MetricCard label="Unknown" value={unknownCount} detail="missing or malformed" icon={CircleHelp} tone="slate" />
+        </div>
+      </div>
+      <div className="mb-4"><div className="relative max-w-sm"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search client updates" data-testid="input-search-updates" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search hostname or version..." className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div></div>
+      {filtered.length === 0 ? <EmptyState icon={Laptop} title={search ? "No matching clients" : "No clients enrolled"} detail={search ? "Try a different search term." : "Enroll clients to monitor their versions."} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : undefined} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[700px] grid-cols-[1.5fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Client Hostname" field="hostname" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Installed Version" field="installedVersion" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Status" field="statusLabel" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></div><div className="min-w-[700px] divide-y divide-[#edf0eb]">{filtered.map((client) => <div key={client.id} className="grid gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7] md:grid-cols-[1.5fr_1fr_1fr] md:items-center md:gap-4"><div className="flex items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e3f0e9] text-[11px] font-extrabold text-[#2d7258]">{initials(client.hostname)}</div><div className="min-w-0"><div className="truncate text-xs font-extrabold text-[#304b45]">{client.hostname}</div><div className="mt-1 truncate font-mono text-[10px] text-[#899992]">{client.name}</div></div></div><div className="font-mono text-[11px] text-[#536b68]">{client.installedVersion || <span className="text-[#a1b3ac] italic">Unknown</span>}</div><div><StatusPill value={client.statusLabel} kind={client.statusLabel === 'current' || client.statusLabel === 'ahead' ? 'success' : client.statusLabel === 'outdated' ? 'warning' : 'neutral'} /></div></div>)}</div></div>}
+    </>}
+  </div>;
+}
+
 function SettingsPage() {
   const query = useGetServerSettings();
   const update = useUpdateServerSettings();
   const rotate = useRotateClientApiKey();
   type SettingsForm = ServerSettings;
-  const [form, setForm] = useState<SettingsForm>({ syncPort: 443, adminHttpsEnabled: true, apiKeyConfigured: false, apiKeyLastRotatedAt: null });
+  const [form, setForm] = useState<SettingsForm>({ syncPort: 443, adminHttpsEnabled: true, desiredClientVersion: '1.0.0', apiKeyConfigured: false, apiKeyLastRotatedAt: null });
   const [serverHostname, setServerHostname] = useState(window.location.hostname || 'api.nemesys.local');
   const [rotation, setRotation] = useState<ApiKeyRotation | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [feedback, setFeedback] = useState('');
   useEffect(() => { if (query.data && !initialized) { setForm((current) => ({ ...current, ...query.data })); setInitialized(true); } }, [query.data, initialized]);
   const set = <K extends keyof SettingsForm>(key: K, value: SettingsForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const save = (event: FormEvent) => { event.preventDefault(); update.mutate({ data: { syncPort: 443, adminHttpsEnabled: form.adminHttpsEnabled } }, { onSuccess: (saved) => { setForm((current) => ({ ...current, ...saved })); setFeedback('Settings saved. Policy settings apply on the next client sync.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); } }); };
+  const save = (event: FormEvent) => { event.preventDefault(); update.mutate({ data: { syncPort: form.syncPort, adminHttpsEnabled: form.adminHttpsEnabled, desiredClientVersion: form.desiredClientVersion } }, { onSuccess: (saved) => { setForm((current) => ({ ...current, ...saved })); setFeedback('Settings saved. Policy settings apply on the next client sync.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); } }); };
   const rotateKey = () => { rotate.mutate(undefined, { onSuccess: (result) => { setRotation(result); setFeedback('New API key generated. Use the one-time command below to install or reconfigure clients.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); } }); };
   const serverEndpoint = /^https?:\/\//i.test(serverHostname) ? serverHostname : `https://${serverHostname}`;
   const installCommand = rotation ? `NemesysClientSetup.exe /quiet /server "${serverEndpoint}" /apiKey "${rotation.apiKey}"` : '';
@@ -709,6 +926,7 @@ function SettingsPage() {
     {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading && !initialized ? <LoadingRows count={4} /> : <form onSubmit={save} className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]"><div className="space-y-6">
        <section data-testid="panel-api-key-transport" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Shared API key transport</h2><p className="mt-1 text-xs text-[#87958e]">Clients identify by hostname and use a shared key. The server keeps a hash for authentication and an encrypted copy for intentional administrator recovery.</p></div></div><div className="flex items-center justify-between rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div><div className="text-xs font-bold text-[#38534a]">Key status</div><div data-testid="status-shared-api-key" className="mt-1 text-[10px] text-[#28745b]">{rotation ? 'New key ready for silent install' : form.apiKeyConfigured ? `Configured · rotated ${formatTime(form.apiKeyLastRotatedAt)}` : 'Not configured'}</div></div><Button type="button" variant="secondary" data-testid="button-rotate-api-key" onClick={rotateKey} disabled={rotate.isPending}><RotateCcw size={13} />{rotate.isPending ? 'Generating…' : 'Rotate key'}</Button></div>{rotation && <div className="mt-4 rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">One-time installation command</div><code data-testid="text-silent-install-command" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-2 font-mono text-[11px] leading-5 text-[#586c6d]">{installCommand}</code><Button type="button" variant="secondary" className="mt-3" data-testid="button-copy-install-command" onClick={() => { void navigator.clipboard?.writeText(installCommand); }}>Copy command</Button><div className="mt-2 text-[10px] leading-4 text-[#8f766b]">The API key is returned once. The client installer must encrypt it on the machine; the server hostname remains clear text in the client configuration.</div></div>}</section>
       <section data-testid="panel-server-endpoint" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#fff0d5] text-[#94661a]"><Globe2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Server hostname and endpoint</h2><p className="mt-1 text-xs text-[#87958e]">The hostname is safe to keep in clear text so the Windows service can locate this Kubernetes-hosted control plane.</p></div></div><label className="block max-w-sm"><span className="field-label">Server hostname</span><input data-testid="input-server-hostname" value={serverHostname} onChange={(e) => setServerHostname(e.target.value)} className="field-input font-mono" /></label><div className="mt-4 max-w-sm rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div className="field-label">Client sync connection</div><div className="mt-1 font-mono text-xs font-bold text-[#38534a]">HTTPS · TCP 443</div></div></section>
+       <section data-testid="panel-client-version" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Upload size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Desired client version</h2><p className="mt-1 text-xs text-[#87958e]">Configure the expected version for the NemesysV2 Windows client. Outdated clients are tracked in the Client updates view.</p></div></div><label className="block max-w-sm"><span className="field-label">Desired version</span><input data-testid="input-desired-client-version" required pattern="^\d+(?:\.\d+)*$" value={form.desiredClientVersion || ''} onChange={(e) => set('desiredClientVersion', e.target.value)} className="field-input font-mono" placeholder="1.0.0" /></label></section>
        <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><Activity size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Client monitoring cadence</h2><p className="mt-1 text-xs text-[#87958e]">The Windows service checks every 5 minutes normally and every 30 seconds while any enabled application policy is in Update Mode. Random jitter prevents synchronized polling.</p></div></div></section>
        <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Settings2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Administration channel</h2><p className="mt-1 text-xs text-[#87958e]">Protect the control center session and keep client transport separate.</p></div></div><SettingToggle label="Admin HTTPS" detail="Protect the control center session with HTTPS." value={form.adminHttpsEnabled} onChange={(value) => set('adminHttpsEnabled', value)} testId="toggle-admin-https" /><div className="mt-3 rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 text-xs"><div className="font-bold text-[#38534a]">Shared API-key client access</div><div className="mt-1 text-[10px] text-[#87958e]">The server stores a SHA-256 hash; clients authenticate with the encrypted local key and hostname identity.</div></div></section></div><div className="space-y-4"><div className="sticky top-[94px] rounded-xl border border-[#dbe3dd] bg-[#203c4a] p-5 text-[#edf5ee] shadow-[0_7px_25px_rgba(29,55,63,.1)]"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ec5ad]"><ShieldCheck size={14} /> Connection posture</div><div className="mt-4 space-y-3"><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Server endpoint</span><span data-testid="text-server-endpoint" className="font-mono font-bold text-[#b9e7ca]">{serverHostname}:{form.syncPort}</span></div><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Client identity</span><span className="font-mono font-bold text-[#b9e7ca]">HOSTNAME</span></div><div className="flex items-center justify-between text-xs"><span className="text-[#aec3bd]">Monitoring cadence</span><span className="font-mono font-bold text-[#b9e7ca]">5m / 30s Update Mode</span></div></div><Button type="submit" disabled={update.isPending} className="mt-6 w-full"><Save size={14} />{update.isPending ? 'Applying changes…' : 'Save settings'}</Button>{feedback && <div className="mt-3 flex gap-2 rounded-lg bg-[#2b584b] px-3 py-2 text-[11px] leading-4 text-[#bde8cb]"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{feedback}</div>}</div><div className="rounded-xl border border-[#dbe3dd] bg-[#fbfcf8] p-4"><div className="flex gap-2 text-xs font-bold text-[#486159]"><CircleHelp size={15} className="text-[#5d947b]" /> Configuration status</div><p className="mt-2 text-[11px] leading-5 text-[#84928c]">Hostname is supplied by the administrator, key rotation returns the value once, and all close timeouts and Update Mode actions are configured per software policy.</p></div></div></form>}
   </div>;
@@ -719,7 +937,7 @@ function SettingToggle({ label, detail, value, onChange, testId }: { label: stri
 }
 
 function Router() {
-  return <ErrorBoundary resetKey={window.location.pathname}><Layout><Switch><Route path="/" component={OverviewPage} /><Route path="/clients" component={ClientsPage} /><Route path="/software" component={SoftwarePage} /><Route path="/audit" component={AuditPage} /><Route path="/administrators" component={AdministratorsPage} /><Route path="/security" component={SecurityPage} /><Route path="/api-key" component={ApiKeyPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Layout></ErrorBoundary>;
+  return <ErrorBoundary resetKey={window.location.pathname}><Layout><Switch><Route path="/" component={OverviewPage} /><Route path="/clients" component={ClientsPage} /><Route path="/client-updates" component={ClientUpdatesPage} /><Route path="/software" component={SoftwarePage} /><Route path="/audit" component={AuditPage} /><Route path="/administrators" component={AdministratorsPage} /><Route path="/security" component={SecurityPage} /><Route path="/api-key" component={ApiKeyPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></Layout></ErrorBoundary>;
 }
 
 function App() {

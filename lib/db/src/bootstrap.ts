@@ -33,6 +33,7 @@ const schemaStatements = [
     last_poll timestamp with time zone,
     last_successful_sync timestamp with time zone,
     sync_version text DEFAULT '1.0.0' NOT NULL,
+    installed_version text,
     certificate_status text DEFAULT 'valid' NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_ldap_settings (
@@ -54,6 +55,7 @@ const schemaStatements = [
     id text PRIMARY KEY NOT NULL,
     sync_port integer DEFAULT 443 NOT NULL,
     admin_https_enabled boolean DEFAULT true NOT NULL,
+    desired_client_version text DEFAULT '1.0.0' NOT NULL,
     admin_username text DEFAULT 'admin' NOT NULL,
     admin_password_hash text,
     client_api_key_hash text,
@@ -97,7 +99,10 @@ const schemaStatements = [
   )`,
   `ALTER TABLE public.nemesys_clients
     ADD COLUMN IF NOT EXISTS last_poll timestamp with time zone,
-    ADD COLUMN IF NOT EXISTS last_successful_sync timestamp with time zone`,
+    ADD COLUMN IF NOT EXISTS last_successful_sync timestamp with time zone,
+    ADD COLUMN IF NOT EXISTS installed_version text`,
+  `ALTER TABLE public.nemesys_server_settings
+    ADD COLUMN IF NOT EXISTS desired_client_version text NOT NULL DEFAULT '1.0.0'`,
   `ALTER TABLE public.nemesys_software_policies
     ADD COLUMN IF NOT EXISTS allow_postpone boolean NOT NULL DEFAULT false`,
   `DO $$

@@ -7,6 +7,8 @@
  */
 export interface ClientEnrollmentInput {
   address?: string;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  clientVersion?: string;
 }
 
 export interface HealthStatus {
@@ -71,6 +73,11 @@ export interface Client {
   /** @nullable */
   lastSuccessfulSync: string | null;
   syncVersion: string;
+  /**
+     * Version reported by the installed NemesysV2 Windows client.
+     * @nullable
+     */
+  installedVersion: string | null;
   certificateStatus: ClientCertificateStatus;
 }
 
@@ -223,6 +230,8 @@ export interface ServerSettings {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  desiredClientVersion: string;
   apiKeyConfigured: boolean;
   /** @nullable */
   apiKeyLastRotatedAt: string | null;
@@ -235,6 +244,8 @@ export interface ServerSettingsInput {
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  desiredClientVersion: string;
 }
 
 export interface ApiKeyRotation {
@@ -385,6 +396,8 @@ export const SyncReportInputResult = {
 export interface SyncReportInput {
   clientId: string;
   clientName: string;
+  /** @pattern ^\d+(?:\.\d+)*$ */
+  clientVersion?: string;
   result: SyncReportInputResult;
   applications: ApplicationReport[];
 }
