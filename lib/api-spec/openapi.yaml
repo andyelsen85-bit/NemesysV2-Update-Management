@@ -626,11 +626,16 @@ components:
         section: { type: string }
         key: { type: string }
         expectedValue: { type: string }
+    ComparisonOperator:
+      type: string
+      description: Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.
+      enum: ["<", "<=", "=", ">=", ">"]
     ExeCheck:
       type: object
       required: [executable, targetVersion]
       properties:
         executable: { type: string }
+        comparisonOperator: { $ref: "#/components/schemas/ComparisonOperator" }
         targetVersion: { type: string }
         installCommand: { type: string }
     IniCheck:
@@ -640,6 +645,7 @@ components:
         filePath: { type: string }
         section: { type: string }
         key: { type: string }
+        comparisonOperator: { $ref: "#/components/schemas/ComparisonOperator" }
         expectedValue: { type: string }
     SoftwarePolicy:
       type: object

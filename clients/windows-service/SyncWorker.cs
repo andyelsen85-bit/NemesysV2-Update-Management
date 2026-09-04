@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Pipes;
 using System.Net;
 using System.Net.Http.Json;
@@ -539,8 +540,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             checks.Add(new PolicyCheckAudit(
                 $"EXE [{check.Executable}]",
                 DescribeObservedVersion(check.Executable, observed),
-                DescribeExpected(check.TargetVersion, "version"),
-                IsConfiguredMatch(observed.Raw, check.TargetVersion)));
+                DescribeExpected(check.TargetVersion, "version", check.ComparisonOperator),
+                IsConfiguredMatch(observed.Raw, check.TargetVersion, check.ComparisonOperator)));
         }
         foreach (var check in policy.IniChecks)
         {
@@ -548,8 +549,8 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             checks.Add(new PolicyCheckAudit(
                 $"INI [{check.FilePath}] [{check.Section}] {check.Key}",
                 DescribeObservedIni(check.FilePath, observed),
-                DescribeExpected(check.ExpectedValue, "value"),
-                IsConfiguredMatch(observed.Raw, check.ExpectedValue)));
+                DescribeExpected(check.ExpectedValue, "value", check.ComparisonOperator),
+                IsConfiguredMatch(observed.Raw, check.ExpectedValue, check.ComparisonOperator)));
         }
 
         if (checks.Count == 0)
@@ -756,10 +757,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         foreach (var check in policy.ExeChecks)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var observed = File.Exists(check.Executable)
-                ? FileVersionInfo.GetVersionInfo(check.Executable).FileVersion ?? ""
-                : "";
-            if (observed == check.TargetVersion || string.IsNullOrWhiteSpace(check.InstallCommand)) continue;
+            var observed = ReadFileVersion(check.Executable);
+            if (IsConfiguredMatch(observed.Raw, check.TargetVersion, check.ComparisonOperator) ||
+                string.IsNullOrWhiteSpace(check.InstallCommand)) continue;
             installationAttempted = true;
             try
             {
@@ -848,10 +848,61 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             await Task.Delay(remaining, cancellationToken);
     }
 
-    private static bool IsConfiguredMatch(string observed, string expected) =>
-        !string.IsNullOrWhiteSpace(observed) &&
-        !string.IsNullOrWhiteSpace(expected) &&
-        observed == expected;
+    private static bool IsConfiguredMatch(string observed, string expected, string? comparisonOperator)
+    {
+        if (string.IsNullOrWhiteSpace(observed) || string.IsNullOrWhiteSpace(expected))
+            return false;
+
+        var comparison = comparisonOperator ?? "=";
+        if (comparison == "=")
+            return string.Equals(observed, expected, StringComparison.Ordinal);
+
+        if (comparison is not ("<" or "<=" or ">=" or ">") ||
+            !TryCompareDottedNumericVersions(observed, expected, out var result))
+            return false;
+
+        return comparison switch
+        {
+            "<" => result < 0,
+            "<=" => result <= 0,
+            ">=" => result >= 0,
+            ">" => result > 0,
+            _ => false,
+        };
+    }
+
+    private static bool TryCompareDottedNumericVersions(string observed, string expected, out int result)
+    {
+        result = 0;
+        var observedComponents = observed.Split('.');
+        var expectedComponents = expected.Split('.');
+        var componentCount = Math.Max(observedComponents.Length, expectedComponents.Length);
+
+        for (var index = 0; index < componentCount; index++)
+        {
+            if (!TryParseVersionComponent(
+                    index < observedComponents.Length ? observedComponents[index] : "0",
+                    out var observedComponent) ||
+                !TryParseVersionComponent(
+                    index < expectedComponents.Length ? expectedComponents[index] : "0",
+                    out var expectedComponent))
+                return false;
+
+            if (observedComponent == expectedComponent) continue;
+            result = observedComponent < expectedComponent ? -1 : 1;
+            return true;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseVersionComponent(string component, out ulong value)
+    {
+        value = 0;
+        return component.Length > 0 &&
+               component.All(char.IsAsciiDigit) &&
+               ulong.TryParse(component, NumberStyles.None, CultureInfo.InvariantCulture, out value);
+    }
 
     private static async Task<string> ResolveAddressAsync(string server, int port)
     {
@@ -928,8 +979,13 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     private static string DescribeObservedVersion(string path, RawCheckValue observed) => observed.Display;
     private static string DescribeObservedIni(string path, RawCheckValue observed) =>
         File.Exists(path) ? observed.Display : "file not found";
-    private static string DescribeExpected(string value, string kind) =>
-        string.IsNullOrWhiteSpace(value) ? $"expected {kind} not configured" : value;
+    private static string DescribeExpected(string value, string kind, string? comparisonOperator)
+    {
+        var comparison = comparisonOperator ?? "=";
+        return string.IsNullOrWhiteSpace(value)
+            ? $"{comparison} expected {kind} not configured"
+            : $"{comparison} {value}";
+    }
 
     private static RawCheckValue ReadIniValue(string path, string section, string key)
     {
@@ -1707,8 +1763,17 @@ internal sealed record SoftwarePolicy(
     string? UpdateModeCycleId = null,
     bool AllowPostpone = false,
     bool Enabled = true);
-internal sealed record ExeCheck(string Executable, string TargetVersion, string? InstallCommand);
-internal sealed record IniCheck(string FilePath, string Section, string Key, string ExpectedValue);
+internal sealed record ExeCheck(
+    string Executable,
+    string TargetVersion,
+    string? InstallCommand,
+    string? ComparisonOperator = null);
+internal sealed record IniCheck(
+    string FilePath,
+    string Section,
+    string Key,
+    string ExpectedValue,
+    string? ComparisonOperator = null);
 internal sealed record ApplicationResult(
     string SoftwareId,
     string SoftwareName,

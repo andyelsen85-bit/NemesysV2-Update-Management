@@ -48,7 +48,10 @@ The service enrolls by hostname (the reported address is the best available loca
 IPv4 address), refreshes the authenticated sync endpoint, and scans the configured
 policies and running processes on its jittered polling cadence. It evaluates EXE file
 versions and INI section/key/value checks and sends labelled audit summaries for
-every configured check. Missing files, unavailable EXE versions, missing INI
+every configured check. Each check supports `<`, `<=`, `=`, `>=`, and `>`.
+Existing checks without an operator use exact equality. Relational operators
+compare dotted numeric components, so `1.10` is newer than `1.9`; malformed
+relational values fail as noncompliant. Missing files, unavailable EXE versions, missing INI
 values, and unconfigured expected values are explicitly reported. If the config
 endpoint is temporarily unavailable after a successful download, the service
 continues those local scans from its cached configuration. API operations have a

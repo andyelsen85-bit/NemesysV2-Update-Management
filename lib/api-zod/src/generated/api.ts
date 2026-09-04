@@ -99,6 +99,7 @@ export const GetClientSyncConfigResponse = zod.object({
   "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })),
@@ -106,6 +107,7 @@ export const GetClientSyncConfigResponse = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })),
   "iniRules": zod.array(zod.object({
@@ -149,6 +151,7 @@ export const ListSoftwareResponseItem = zod.object({
   "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })),
@@ -156,6 +159,7 @@ export const ListSoftwareResponseItem = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })),
   "iniRules": zod.array(zod.object({
@@ -200,6 +204,7 @@ export const CreateSoftwareBody = zod.object({
   "supervisedExecutables": zod.array(zod.string()).optional().describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })).optional(),
@@ -207,6 +212,7 @@ export const CreateSoftwareBody = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })).optional(),
   "iniRules": zod.array(zod.object({
@@ -243,6 +249,7 @@ export const CreateSoftwareResponse = zod.object({
   "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })),
@@ -250,6 +257,7 @@ export const CreateSoftwareResponse = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })),
   "iniRules": zod.array(zod.object({
@@ -297,6 +305,7 @@ export const UpdateSoftwareBody = zod.object({
   "supervisedExecutables": zod.array(zod.string()).optional().describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })).optional(),
@@ -304,6 +313,7 @@ export const UpdateSoftwareBody = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })).optional(),
   "iniRules": zod.array(zod.object({
@@ -340,6 +350,7 @@ export const UpdateSoftwareResponse = zod.object({
   "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })),
@@ -347,6 +358,7 @@ export const UpdateSoftwareResponse = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })),
   "iniRules": zod.array(zod.object({
@@ -758,6 +770,7 @@ export const GetSyncConfigResponse = zod.object({
   "supervisedExecutables": zod.array(zod.string()).describe('Executable paths whose running processes are supervised and closed before a managed update.'),
   "exeChecks": zod.array(zod.object({
   "executable": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "targetVersion": zod.string(),
   "installCommand": zod.string().optional()
 })),
@@ -765,6 +778,7 @@ export const GetSyncConfigResponse = zod.object({
   "filePath": zod.string(),
   "section": zod.string(),
   "key": zod.string(),
+  "comparisonOperator": zod.enum(['<', '<=', '=', '>=', '>']).optional().describe('Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.'),
   "expectedValue": zod.string()
 })),
   "iniRules": zod.array(zod.object({

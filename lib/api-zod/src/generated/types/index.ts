@@ -25,6 +25,7 @@ export * from './clientCertificateStatus';
 export * from './clientEnrollmentInput';
 export * from './clientHostnameParameter';
 export * from './clientStatus';
+export * from './comparisonOperator';
 export * from './dashboardSummary';
 export * from './exeCheck';
 export * from './getSyncConfigParams';

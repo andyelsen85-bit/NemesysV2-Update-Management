@@ -80,8 +80,23 @@ export interface IniRule {
   expectedValue: string;
 }
 
+/**
+ * Compare the observed version-like value to the configured expected value. Missing operators from older policies are treated as equality.
+ */
+export type ComparisonOperator = typeof ComparisonOperator[keyof typeof ComparisonOperator];
+
+
+export const ComparisonOperator = {
+  '<': '<',
+  '<=': '<=',
+  '=': '=',
+  '>=': '>=',
+  '>': '>',
+} as const;
+
 export interface ExeCheck {
   executable: string;
+  comparisonOperator?: ComparisonOperator;
   targetVersion: string;
   installCommand?: string;
 }
@@ -90,6 +105,7 @@ export interface IniCheck {
   filePath: string;
   section: string;
   key: string;
+  comparisonOperator?: ComparisonOperator;
   expectedValue: string;
 }
 

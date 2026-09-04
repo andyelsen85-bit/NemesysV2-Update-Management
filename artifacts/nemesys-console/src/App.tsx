@@ -15,7 +15,7 @@ import {
   useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware
 } from '@workspace/api-client-react';
 import type {
-  AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
+  AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
   SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -28,6 +28,14 @@ import './index.css';
 
 const queryClient = new QueryClient();
 const APP_VERSION = consolePackage.version;
+const comparisonOperators: Array<{ value: ComparisonOperator; label: string }> = [
+  { value: '<', label: '< less than' },
+  { value: '<=', label: '≤ less or equal' },
+  { value: '=', label: '= equal' },
+  { value: '>=', label: '≥ greater or equal' },
+  { value: '>', label: '> greater than' },
+];
+const isDottedNumericVersion = (value: string) => /^\d+(?:\.\d+)*$/.test(value);
 
 const navItems = [
   { href: '/', label: 'Overview', icon: Gauge },
@@ -425,12 +433,12 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
   const [feedback, setFeedback] = useState('');
   const busy = create.isPending || update.isPending;
 
-  const legacyExeChecks = policy && exeChecks.length === 0 && policy.ruleType !== 'ini' && policy.executable !== '-'
+  const legacyExeChecks = (policy && exeChecks.length === 0 && policy.ruleType !== 'ini' && policy.executable !== '-'
     ? [{ executable: policy.executable, targetVersion: policy.targetVersion, installCommand: '' }]
-    : exeChecks;
+    : exeChecks).map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? '=' as const }));
   const legacyIniChecks = policy && iniChecks.length === 0
-    ? policy.iniRules.map((rule) => ({ filePath: '', ...rule }))
-    : iniChecks;
+    ? policy.iniRules.map((rule) => ({ filePath: '', comparisonOperator: '=' as const, ...rule }))
+    : iniChecks.map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? '=' as const }));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -441,6 +449,12 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
     const validIniChecks = legacyIniChecks
       .filter((check) => check.filePath.trim() && check.section.trim() && check.key.trim())
       .map((check) => ({ ...check, filePath: check.filePath.trim(), section: check.section.trim(), key: check.key.trim(), expectedValue: check.expectedValue.trim() }));
+    const invalidRelationalValue = validExeChecks.some((check) => check.comparisonOperator !== '=' && !isDottedNumericVersion(check.targetVersion))
+      || validIniChecks.some((check) => check.comparisonOperator !== '=' && !isDottedNumericVersion(check.expectedValue));
+    if (invalidRelationalValue) {
+      setFeedback('Less-than and greater-than comparisons require numeric versions separated by dots, such as 4.7.2.118.');
+      return;
+    }
     if (!name.trim() || normalizedSupervised.length === 0 && validExeChecks.length === 0 && validIniChecks.length === 0) {
       setFeedback('Add an application name and at least one application, file-version, or INI check.');
       return;
@@ -472,8 +486,8 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
   };
 
   const addSupervised = () => setSupervisedExecutables((items) => [...items, '']);
-  const addExeCheck = () => setExeChecks((items) => [...items, { executable: '', targetVersion: '', installCommand: '' }]);
-  const addIniCheck = () => setIniChecks((items) => [...items, { filePath: '', section: '', key: '', expectedValue: '' }]);
+  const addExeCheck = () => setExeChecks((items) => [...items, { executable: '', comparisonOperator: '=', targetVersion: '', installCommand: '' }]);
+  const addIniCheck = () => setIniChecks((items) => [...items, { filePath: '', section: '', key: '', comparisonOperator: '=', expectedValue: '' }]);
 
   return <Modal wide title={isEdit ? 'Edit policy' : 'New software policy'} subtitle="Keep application supervision, EXE versions, and INI values together in one policy." onClose={onClose}>
     <form onSubmit={submit} className="space-y-4">
@@ -485,13 +499,13 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
       </section>
 
       <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
-        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">File version checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Add any EXE files whose file version and optional silent install command should be checked. They can be different from the supervised processes above.</p></div><Button type="button" variant="secondary" onClick={addExeCheck} data-testid="button-add-exe-version-check"><Plus size={13} /> Add version check</Button></div>
-        {legacyExeChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No file version checks added.</p> : legacyExeChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.65fr_1fr_28px]"><input aria-label={`Version check EXE ${index + 1}`} data-testid={`input-exe-version-path-${index}`} value={check.executable} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, executable: event.target.value } : item))} placeholder="C:\Program Files\...\versioned.exe" className="field-input font-mono" /><input aria-label={`Expected version ${index + 1}`} data-testid={`input-exe-version-target-${index}`} value={check.targetVersion} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, targetVersion: event.target.value } : item))} placeholder="4.7.2.118" className="field-input font-mono" /><input aria-label={`Silent install command ${index + 1}`} value={check.installCommand ?? ''} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, installCommand: event.target.value } : item))} placeholder="Setup.exe /quiet" className="field-input font-mono" /><button type="button" aria-label={`Remove version check ${index + 1}`} data-testid={`button-remove-exe-version-${index}`} onClick={() => setExeChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
+        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">File version checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Compare each EXE file version with its configured value. Use ≥ to allow newer self-updated versions.</p></div><Button type="button" variant="secondary" onClick={addExeCheck} data-testid="button-add-exe-version-check"><Plus size={13} /> Add version check</Button></div>
+        {legacyExeChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No file version checks added.</p> : legacyExeChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.7fr_.65fr_1fr_28px]"><input aria-label={`Version check EXE ${index + 1}`} data-testid={`input-exe-version-path-${index}`} value={check.executable} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, executable: event.target.value } : item))} placeholder="C:\Program Files\...\versioned.exe" className="field-input font-mono" /><select aria-label={`EXE comparison ${index + 1}`} data-testid={`select-exe-operator-${index}`} value={check.comparisonOperator ?? '='} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, comparisonOperator: event.target.value as ComparisonOperator } : item))} className="field-input font-mono">{comparisonOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}</select><input aria-label={`Expected version ${index + 1}`} data-testid={`input-exe-version-target-${index}`} value={check.targetVersion} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, targetVersion: event.target.value } : item))} placeholder="4.7.2.118" className="field-input font-mono" /><input aria-label={`Silent install command ${index + 1}`} value={check.installCommand ?? ''} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, installCommand: event.target.value } : item))} placeholder="Setup.exe /quiet" className="field-input font-mono" /><button type="button" aria-label={`Remove version check ${index + 1}`} data-testid={`button-remove-exe-version-${index}`} onClick={() => setExeChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
       </section>
 
       <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
-        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">INI value checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Add section, key, and expected value checks for any INI files. These are independent from EXE checks.</p></div><Button type="button" variant="secondary" onClick={addIniCheck} data-testid="button-add-ini-value-check"><Plus size={13} /> Add INI check</Button></div>
-        {legacyIniChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No INI value checks added.</p> : legacyIniChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.65fr_.75fr_.75fr_28px]"><input aria-label={`INI file ${index + 1}`} data-testid={`input-ini-file-${index}`} value={check.filePath} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, filePath: event.target.value } : item))} placeholder="C:\ProgramData\app.ini" className="field-input font-mono" /><input aria-label={`INI section ${index + 1}`} value={check.section} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, section: event.target.value } : item))} placeholder="Section" className="field-input font-mono" /><input aria-label={`INI key ${index + 1}`} value={check.key} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item))} placeholder="Key" className="field-input font-mono" /><input aria-label={`INI expected value ${index + 1}`} value={check.expectedValue} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, expectedValue: event.target.value } : item))} placeholder="Expected value" className="field-input font-mono" /><button type="button" aria-label={`Remove INI value check ${index + 1}`} onClick={() => setIniChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
+        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">INI value checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Compare version-like INI values with the configured value. Relational checks require dotted numeric values.</p></div><Button type="button" variant="secondary" onClick={addIniCheck} data-testid="button-add-ini-value-check"><Plus size={13} /> Add INI check</Button></div>
+        {legacyIniChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No INI value checks added.</p> : legacyIniChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.65fr_.7fr_.7fr_.75fr_28px]"><input aria-label={`INI file ${index + 1}`} data-testid={`input-ini-file-${index}`} value={check.filePath} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, filePath: event.target.value } : item))} placeholder="C:\ProgramData\app.ini" className="field-input font-mono" /><input aria-label={`INI section ${index + 1}`} value={check.section} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, section: event.target.value } : item))} placeholder="Section" className="field-input font-mono" /><input aria-label={`INI key ${index + 1}`} value={check.key} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item))} placeholder="Key" className="field-input font-mono" /><select aria-label={`INI comparison ${index + 1}`} data-testid={`select-ini-operator-${index}`} value={check.comparisonOperator ?? '='} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, comparisonOperator: event.target.value as ComparisonOperator } : item))} className="field-input font-mono">{comparisonOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}</select><input aria-label={`INI expected value ${index + 1}`} value={check.expectedValue} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, expectedValue: event.target.value } : item))} placeholder="Expected value" className="field-input font-mono" /><button type="button" aria-label={`Remove INI value check ${index + 1}`} onClick={() => setIniChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
       </section>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="block"><span className="field-label">Normal close countdown (seconds)</span><input type="number" min="1" max="3600" required value={normalCloseTimeoutSeconds} onChange={(event) => setNormalCloseTimeoutSeconds(event.target.value)} className="field-input font-mono" /></label><div><span className="field-label">Policy state</span><button type="button" data-testid="button-toggle-policy-state" onClick={() => setEnabled((value) => !value)} className={cx('flex h-9 w-full items-center justify-between rounded-lg border px-3 text-xs font-bold transition sm:w-[150px]', enabled ? 'border-[#8cc5a6] bg-[#e7f4ec] text-[#267154]' : 'border-[#d6ded8] bg-[#eef1ef] text-[#72817b]')}><span>{enabled ? 'Enforcing' : 'Paused'}</span><span className={cx('h-2 w-2 rounded-full', enabled ? 'bg-[#2ca06d]' : 'bg-[#96a29d]')} /></button></div></div>

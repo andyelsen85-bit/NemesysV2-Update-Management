@@ -37,6 +37,45 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+type ComparisonOperator = "<" | "<=" | "=" | ">=" | ">";
+
+function normalizeExeChecks<T extends {
+  executable: string;
+  targetVersion: string;
+  installCommand?: string;
+  comparisonOperator?: ComparisonOperator;
+}>(checks: T[]) {
+  return checks.map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? "=" as const }));
+}
+
+function normalizeIniChecks<T extends {
+  filePath: string;
+  section: string;
+  key: string;
+  expectedValue: string;
+  comparisonOperator?: ComparisonOperator;
+}>(checks: T[]) {
+  return checks.map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? "=" as const }));
+}
+
+function isRelationalOperator(operator: ComparisonOperator): boolean {
+  return operator !== "=";
+}
+
+function isDottedNumericVersion(value: string): boolean {
+  return /^\d+(?:\.\d+)*$/.test(value);
+}
+
+function hasInvalidRelationalCheck(
+  exeChecks: Array<{ comparisonOperator: ComparisonOperator; targetVersion: string }>,
+  iniChecks: Array<{ comparisonOperator: ComparisonOperator; expectedValue: string }>,
+): boolean {
+  return exeChecks.some((check) =>
+    isRelationalOperator(check.comparisonOperator) && !isDottedNumericVersion(check.targetVersion)
+  ) || iniChecks.some((check) =>
+    isRelationalOperator(check.comparisonOperator) && !isDottedNumericVersion(check.expectedValue)
+  );
+}
 
 async function getDefaultSettings() {
   const [settings] = await db.select().from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
@@ -86,7 +125,7 @@ async function requireHostnameForClient(clientId: string, req: Request, res: Res
 }
 
 function toApiPolicy(policy: DbSoftwarePolicy) {
-  const exeChecks = policy.exeChecks.length > 0
+  const exeChecks = normalizeExeChecks(policy.exeChecks.length > 0
     ? policy.exeChecks
     : policy.ruleType !== "ini" &&
       policy.executable &&
@@ -94,10 +133,10 @@ function toApiPolicy(policy: DbSoftwarePolicy) {
       policy.targetVersion &&
       policy.targetVersion !== "-"
       ? [{ executable: policy.executable, targetVersion: policy.targetVersion }]
-      : [];
-  const iniChecks = policy.iniChecks.length > 0
+      : []);
+  const iniChecks = normalizeIniChecks(policy.iniChecks.length > 0
     ? policy.iniChecks
-    : policy.iniRules.map((rule) => ({ filePath: "", ...rule }));
+    : policy.iniRules.map((rule) => ({ filePath: "", ...rule })));
   return { ...policy, supervisedExecutables: policy.supervisedExecutables ?? [], exeChecks, iniChecks };
 }
 
@@ -238,10 +277,14 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     return;
   }
 
-  const exeChecks = parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
+  const exeChecks = normalizeExeChecks(parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
     ? [{ executable: parsed.data.executable, targetVersion: parsed.data.targetVersion }]
-    : []);
-  const iniChecks = parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule }));
+    : []));
+  const iniChecks = normalizeIniChecks(parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule })));
+  if (hasInvalidRelationalCheck(exeChecks, iniChecks)) {
+    res.status(400).json({ error: "Relational comparison values must contain only numeric version components separated by dots." });
+    return;
+  }
   const [policy] = await db.insert(softwarePoliciesTable).values({
     id: `policy-${crypto.randomUUID()}`,
     name: parsed.data.name,
@@ -251,7 +294,7 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     supervisedExecutables: parsed.data.supervisedExecutables ?? [],
     exeChecks,
     iniChecks,
-    iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+    iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, comparisonOperator: _comparisonOperator, ...rule }) => rule),
     normalCloseTimeoutSeconds: parsed.data.normalCloseTimeoutSeconds,
     updateMode: parsed.data.updateMode ?? false,
     updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
@@ -277,10 +320,14 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
     return;
   }
 
-  const exeChecks = parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
+  const exeChecks = normalizeExeChecks(parsed.data.exeChecks ?? (parsed.data.executable && parsed.data.targetVersion
     ? [{ executable: parsed.data.executable, targetVersion: parsed.data.targetVersion }]
-    : []);
-  const iniChecks = parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule }));
+    : []));
+  const iniChecks = normalizeIniChecks(parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule })));
+  if (hasInvalidRelationalCheck(exeChecks, iniChecks)) {
+    res.status(400).json({ error: "Relational comparison values must contain only numeric version components separated by dots." });
+    return;
+  }
   const policy = await db.transaction(async (transaction) => {
     const [current] = await transaction
       .select()
@@ -302,7 +349,7 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
         supervisedExecutables: parsed.data.supervisedExecutables ?? [],
         exeChecks,
         iniChecks,
-        iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+        iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, comparisonOperator: _comparisonOperator, ...rule }) => rule),
         normalCloseTimeoutSeconds: parsed.data.normalCloseTimeoutSeconds,
         updateMode: nextUpdateMode,
         updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,

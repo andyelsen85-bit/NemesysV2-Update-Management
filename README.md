@@ -10,7 +10,7 @@ NemesysV2 is a centralized Windows software update-management platform. It combi
 ## Key capabilities
 
 - Enroll Windows clients by hostname and monitor their latest synchronization state.
-- Define software policies using executable file-version checks and INI section/key/value checks.
+- Define software policies using executable file-version checks and INI section/key/value checks with `<`, `<=`, `=`, `>=`, or `>` comparisons.
 - Evaluate EXE and INI requirements together while treating multiple supervised processes as an OR condition.
 - Warn the active Windows user before a managed application closes.
 - Keep the warning visible without stealing keyboard focus from the user's current work.
@@ -83,6 +83,8 @@ Each policy can define:
 - an optional executable and arguments to launch after leaving Update Mode.
 
 EXE and INI compliance checks use **AND** semantics: every configured requirement must pass. Running-process detection uses **OR** semantics: if any managed executable is running for a noncompliant policy, the user warning flow can begin.
+
+Each EXE or INI check has its own comparison operator. Existing policies default to exact equality. For applications that can update themselves, configure `>=` so a version newer than the policy baseline remains compliant. Relational comparisons use dotted numeric version components, so `1.10` correctly compares as newer than `1.9`.
 
 The client revalidates policy generation, compliance, cancellation state, and process state before destructive actions. If process discovery, session-companion authentication, process closure, or installer startup is uncertain, enforcement fails safely and retries later.
 

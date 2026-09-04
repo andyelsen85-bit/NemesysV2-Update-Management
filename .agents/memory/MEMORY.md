@@ -5,3 +5,4 @@
 - [Windows companion IPC](windows-companion-ipc.md) — LocalSystem must own the warning pipe and authenticate the installed interactive companion before trusting responses.
 - [Update Mode exit ownership](update-mode-exit-ownership.md) — self-update exit cycles exclusively own enforcement and require fresh cycle identity after re-enable.
 - [Automatic schema upgrades](automatic-schema-upgrades.md) — API startup owns idempotent policy-contract upgrades under a PostgreSQL advisory lock.
+- [Comparison-operator rollout](comparison-operator-rollout.md) — deploy operator-aware Windows clients before configuring relational EXE or INI checks.

@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ComparisonOperator } from './comparisonOperator';
 
 export interface ExeCheck {
   executable: string;
+  comparisonOperator?: ComparisonOperator;
   targetVersion: string;
   installCommand?: string;
 }

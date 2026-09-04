@@ -5,10 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ComparisonOperator } from './comparisonOperator';
 
 export interface IniCheck {
   filePath: string;
   section: string;
   key: string;
+  comparisonOperator?: ComparisonOperator;
   expectedValue: string;
 }
