@@ -1465,7 +1465,7 @@ internal sealed class SessionCompanion
             var warning = await PipeJsonProtocol.ReadAsync<WarningMessage>(pipe, CancellationToken.None);
             if (warning is null) return;
 
-            using var form = new Form
+            using var form = new NoActivateForm
             {
                 Width = 600, Height = 270, Text = "NemesysV2 update notice",
                 StartPosition = FormStartPosition.CenterScreen, TopMost = true,
@@ -1475,9 +1475,9 @@ internal sealed class SessionCompanion
             };
             form.Shown += (_, _) =>
             {
-                PromoteToForeground(form, requestFocus: true);
+                PromoteToForeground(form);
                 form.BeginInvoke(new Action(
-                    () => PromoteToForeground(form, requestFocus: true)));
+                    () => PromoteToForeground(form)));
             };
             var title = new Label
         {
@@ -1525,20 +1525,12 @@ internal sealed class SessionCompanion
             countdown.Text = $"Closing in 00:{remaining:00}";
             timer.Tick += (_, _) =>
             {
-                PromoteToForeground(form, requestFocus: false);
+                PromoteToForeground(form);
                 remaining--;
                 countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
                 if (remaining <= 0) { timer.Stop(); form.Close(); }
             };
 
-            var previousForegroundLockTimeout = 0U;
-            var foregroundLockTimeoutChanged =
-                SystemParametersInfo(
-                    SpiGetForegroundLockTimeout,
-                    0,
-                    ref previousForegroundLockTimeout,
-                    0)
-                && SetForegroundLockTimeout(0);
             WinEventDelegate foregroundChanged = (_, eventType, windowHandle, _, _, _, _) =>
             {
                 if (eventType != EventSystemForeground
@@ -1552,7 +1544,7 @@ internal sealed class SessionCompanion
                 try
                 {
                     form.BeginInvoke(new Action(
-                        () => PromoteToForeground(form, requestFocus: false)));
+                        () => PromoteToForeground(form)));
                 }
                 catch (InvalidOperationException)
                 {
@@ -1580,10 +1572,6 @@ internal sealed class SessionCompanion
                 {
                     UnhookWinEvent(foregroundHook);
                 }
-                if (foregroundLockTimeoutChanged)
-                {
-                    SetForegroundLockTimeout(previousForegroundLockTimeout);
-                }
                 GC.KeepAlive(foregroundChanged);
             }
             await PipeJsonProtocol.WriteAsync(pipe, new WarningResponse(postponed), CancellationToken.None);
@@ -1598,61 +1586,27 @@ internal sealed class SessionCompanion
     private static readonly IntPtr HwndTopmost = new(-1);
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
+    private const uint SetWindowPosNoActivate = 0x0010;
     private const uint SetWindowPosShowWindow = 0x0040;
-    private const uint SpiGetForegroundLockTimeout = 0x2000;
-    private const uint SpiSetForegroundLockTimeout = 0x2001;
     private const uint EventSystemForeground = 0x0003;
     private const uint WinEventOutOfContext = 0x0000;
     private const uint WinEventSkipOwnProcess = 0x0002;
 
-    private static void PromoteToForeground(Form form, bool requestFocus)
+    private static void PromoteToForeground(Form form)
     {
         if (form.IsDisposed || !form.IsHandleCreated) return;
 
-        // Service-launched session helpers hit the foreground lock, and HWND_TOPMOST
-        // windows still compete within their own z-order. Request focus only when the
-        // dialog is first shown; later promotions must preserve the user's active app.
+        // Topmost windows still compete within their own z-order. Re-promote without
+        // activation so the user can keep typing in the application being closed.
         // Exclusive-fullscreen applications remain OS-controlled.
-        form.WindowState = FormWindowState.Normal;
-        form.TopMost = true;
         SetWindowPos(
             form.Handle,
             HwndTopmost,
             0, 0, 0, 0,
-            SetWindowPosNoMove | SetWindowPosNoSize | SetWindowPosShowWindow);
-        if (requestFocus)
-        {
-            var currentThreadId = GetCurrentThreadId();
-            var foregroundWindow = GetForegroundWindow();
-            var foregroundThreadId = foregroundWindow == IntPtr.Zero
-                ? 0
-                : GetWindowThreadProcessId(foregroundWindow, out _);
-            var inputAttached = foregroundThreadId != 0
-                && foregroundThreadId != currentThreadId
-                && AttachThreadInput(currentThreadId, foregroundThreadId, true);
-            try
-            {
-                form.BringToFront();
-                form.Activate();
-                SetForegroundWindow(form.Handle);
-            }
-            finally
-            {
-                if (inputAttached)
-                {
-                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
-                }
-            }
-        }
-    }
-
-    private static bool SetForegroundLockTimeout(uint timeout)
-    {
-        return SystemParametersInfo(
-            SpiSetForegroundLockTimeout,
-            0,
-            ref timeout,
-            0);
+            SetWindowPosNoMove
+                | SetWindowPosNoSize
+                | SetWindowPosNoActivate
+                | SetWindowPosShowWindow);
     }
 
     private delegate void WinEventDelegate(
@@ -1663,33 +1617,6 @@ internal sealed class SessionCompanion
         int childId,
         uint eventThread,
         uint eventTime);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr windowHandle);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(
-        IntPtr windowHandle,
-        out uint processId);
-
-    [DllImport("kernel32.dll")]
-    private static extern uint GetCurrentThreadId();
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool AttachThreadInput(
-        uint threadIdAttach,
-        uint threadIdAttachTo,
-        bool attach);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SystemParametersInfo(
-        uint action,
-        uint parameter,
-        ref uint value,
-        uint updateFlags);
 
     [DllImport("user32.dll")]
     private static extern IntPtr SetWinEventHook(
@@ -1713,6 +1640,24 @@ internal sealed class SessionCompanion
         int width,
         int height,
         uint flags);
+}
+
+internal sealed class NoActivateForm : Form
+{
+    private const int WindowExNoActivate = 0x08000000;
+    private const int WindowExAppWindow = 0x00040000;
+
+    protected override bool ShowWithoutActivation => true;
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            parameters.ExStyle |= WindowExNoActivate | WindowExAppWindow;
+            return parameters;
+        }
+    }
 }
 
 internal sealed record WarningMessage(string ApplicationName, int Seconds, bool AllowPostpone);
