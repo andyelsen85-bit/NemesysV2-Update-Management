@@ -1583,11 +1583,6 @@ internal sealed class SessionCompanion
         }
     }
 
-    private static readonly IntPtr HwndTopmost = new(-1);
-    private const uint SetWindowPosNoSize = 0x0001;
-    private const uint SetWindowPosNoMove = 0x0002;
-    private const uint SetWindowPosNoActivate = 0x0010;
-    private const uint SetWindowPosShowWindow = 0x0040;
     private const uint EventSystemForeground = 0x0003;
     private const uint WinEventOutOfContext = 0x0000;
     private const uint WinEventSkipOwnProcess = 0x0002;
@@ -1599,14 +1594,7 @@ internal sealed class SessionCompanion
         // Topmost windows still compete within their own z-order. Re-promote without
         // activation so the user can keep typing in the application being closed.
         // Exclusive-fullscreen applications remain OS-controlled.
-        SetWindowPos(
-            form.Handle,
-            HwndTopmost,
-            0, 0, 0, 0,
-            SetWindowPosNoMove
-                | SetWindowPosNoSize
-                | SetWindowPosNoActivate
-                | SetWindowPosShowWindow);
+        TopmostWindow.Pin(form.Handle);
     }
 
     private delegate void WinEventDelegate(
@@ -1631,15 +1619,6 @@ internal sealed class SessionCompanion
     [DllImport("user32.dll")]
     private static extern bool UnhookWinEvent(IntPtr hook);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetWindowPos(
-        IntPtr windowHandle,
-        IntPtr insertAfter,
-        int x,
-        int y,
-        int width,
-        int height,
-        uint flags);
 }
 
 internal sealed class NoActivateForm : Form
@@ -1648,6 +1627,12 @@ internal sealed class NoActivateForm : Form
     private const int WindowExAppWindow = 0x00040000;
 
     protected override bool ShowWithoutActivation => true;
+
+    protected override void OnHandleCreated(EventArgs eventArgs)
+    {
+        base.OnHandleCreated(eventArgs);
+        TopmostWindow.Pin(Handle);
+    }
 
     protected override CreateParams CreateParams
     {
@@ -1658,6 +1643,39 @@ internal sealed class NoActivateForm : Form
             return parameters;
         }
     }
+}
+
+internal static class TopmostWindow
+{
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private static readonly IntPtr HwndNotTopmost = new(-2);
+    private const uint SetWindowPosNoSize = 0x0001;
+    private const uint SetWindowPosNoMove = 0x0002;
+    private const uint SetWindowPosNoActivate = 0x0010;
+    private const uint SetWindowPosShowWindow = 0x0040;
+    private const uint PinFlags =
+        SetWindowPosNoMove
+        | SetWindowPosNoSize
+        | SetWindowPosNoActivate
+        | SetWindowPosShowWindow;
+
+    public static void Pin(IntPtr windowHandle)
+    {
+        // NOACTIVATE windows do not receive the normal activation-driven z-order
+        // refresh, so force one by toggling out of and back into the topmost band.
+        SetWindowPos(windowHandle, HwndNotTopmost, 0, 0, 0, 0, PinFlags);
+        SetWindowPos(windowHandle, HwndTopmost, 0, 0, 0, 0, PinFlags);
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr windowHandle,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
 }
 
 internal sealed record WarningMessage(string ApplicationName, int Seconds, bool AllowPostpone);
