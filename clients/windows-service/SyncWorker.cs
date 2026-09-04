@@ -1475,16 +1475,9 @@ internal sealed class SessionCompanion
             };
             form.Shown += (_, _) =>
             {
-                form.WindowState = FormWindowState.Normal;
-                form.TopMost = true;
-                form.BringToFront();
-                form.Activate();
-                SetForegroundWindow(form.Handle);
-                SetWindowPos(
-                    form.Handle,
-                    HwndTopmost,
-                    0, 0, 0, 0,
-                    SetWindowPosNoMove | SetWindowPosNoSize | SetWindowPosShowWindow);
+                PromoteToForeground(form, requestFocus: true);
+                form.BeginInvoke(new Action(
+                    () => PromoteToForeground(form, requestFocus: true)));
             };
             var title = new Label
         {
@@ -1532,6 +1525,7 @@ internal sealed class SessionCompanion
             countdown.Text = $"Closing in 00:{remaining:00}";
             timer.Tick += (_, _) =>
             {
+                PromoteToForeground(form, requestFocus: false);
                 remaining--;
                 countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
                 if (remaining <= 0) { timer.Stop(); form.Close(); }
@@ -1551,6 +1545,25 @@ internal sealed class SessionCompanion
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
     private const uint SetWindowPosShowWindow = 0x0040;
+
+    private static void PromoteToForeground(Form form, bool requestFocus)
+    {
+        if (form.IsDisposed || !form.IsHandleCreated) return;
+
+        form.WindowState = FormWindowState.Normal;
+        form.TopMost = true;
+        SetWindowPos(
+            form.Handle,
+            HwndTopmost,
+            0, 0, 0, 0,
+            SetWindowPosNoMove | SetWindowPosNoSize | SetWindowPosShowWindow);
+        if (requestFocus)
+        {
+            form.BringToFront();
+            form.Activate();
+            SetForegroundWindow(form.Handle);
+        }
+    }
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr windowHandle);

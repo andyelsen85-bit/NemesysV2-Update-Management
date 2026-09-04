@@ -8,3 +8,5 @@ Database changes required by the current API contract must run automatically dur
 **Why:** Deploying a new API image against an existing Kubernetes database caused every policy and client-sync request to return HTTP 500 when the database lacked the matching columns. Operators require deployment to be self-contained rather than applying SQL manually.
 
 **How to apply:** Keep startup DDL idempotent and preserve legacy values before removing old columns. The deployment startup probe must cover expected migration and lock-wait time so liveness cannot interrupt and restart a transactional upgrade.
+
+The user confirmed on September 4, 2026 that the automatic deployment upgrade resolved the production schema mismatch and client synchronization failure.
