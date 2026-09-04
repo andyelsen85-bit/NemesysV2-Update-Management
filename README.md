@@ -20,7 +20,7 @@ NemesysV2 is a centralized Windows software update-management platform. It combi
 - Store one latest audit result per client for current-state reporting.
 - Manage administrators, LDAP settings, TLS certificates, API keys, and server settings.
 - Deploy the control plane as containerized Kubernetes workloads.
-- Build a self-contained x64 Windows EXE and WiX MSI through GitHub Actions.
+- Build the x64 Windows client as a WiX MSI through GitHub Actions.
 
 ## Screenshots
 
@@ -133,28 +133,6 @@ The MSI:
 - preserves ProgramData during upgrades;
 - removes the service, installation directory, obsolete task, and ProgramData on true uninstall.
 
-### Standalone EXE installation
-
-Publish the executable:
-
-```powershell
-dotnet publish .\clients\windows-service\NemesysV2.Client.csproj -c Release
-```
-
-Install from an elevated prompt:
-
-```powershell
-NemesysV2.Client.exe /quiet `
-  /server "https://updates.example.local" `
-  /apiKey "<client-api-key>"
-```
-
-Uninstall:
-
-```powershell
-NemesysV2.Client.exe /uninstall
-```
-
 Client configuration and logs are stored under:
 
 ```text
@@ -200,9 +178,10 @@ pnpm install
 | ------------------------ | --------- | -------------------------------------------------------- |
 | `DATABASE_URL`           | Yes       | PostgreSQL connection string                             |
 | `SESSION_SECRET`         | Yes       | Signs administrator sessions and derives encryption keys |
-| `PORT`                   | Yes       | API HTTP listen port                                     |
 | `NEMESYS_ADMIN_USERNAME` | Bootstrap | Initial administrator username                           |
 | `NEMESYS_ADMIN_PASSWORD` | Bootstrap | Initial administrator password                           |
+
+NemesysV2 is exposed over HTTPS on fixed port `443`.
 
 Do not commit real credentials, API keys, database URLs, TLS private keys, or LDAP passwords.
 
