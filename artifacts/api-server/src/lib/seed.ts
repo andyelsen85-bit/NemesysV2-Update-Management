@@ -13,13 +13,9 @@ export async function ensureSeedData(): Promise<void> {
     .insert(serverSettingsTable)
     .values({
       id: "default",
-      syncIntervalSeconds: 300,
       syncPort: 443,
       adminHttpsEnabled: true,
       adminUsername: process.env.NEMESYS_ADMIN_USERNAME ?? "admin",
-      updateMode: false,
-      normalCloseTimeoutSeconds: 30,
-      updateModeCloseTimeoutSeconds: 8,
     })
     .onConflictDoNothing();
 

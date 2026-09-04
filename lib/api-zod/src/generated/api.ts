@@ -75,24 +75,21 @@ export const GetClientSyncConfigParams = zod.object({
   "id": zod.coerce.string()
 })
 
-export const getClientSyncConfigResponseNormalCloseTimeoutSecondsMin = 5;
-export const getClientSyncConfigResponseNormalCloseTimeoutSecondsMax = 3600;
+export const getClientSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsDefault = 30;
+export const getClientSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsMax = 3600;
 
-export const getClientSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
-
-export const getClientSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
-
+export const getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsDefault = 8;
 export const getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const getClientSyncConfigResponsePoliciesItemLaunchOnExitUpdateModeDefault = false;
+export const getClientSyncConfigResponsePoliciesItemLaunchExecutablePathDefault = ``;
+export const getClientSyncConfigResponsePoliciesItemLaunchArgumentsDefault = ``;
 
 export const GetClientSyncConfigResponse = zod.object({
   "clientId": zod.string(),
   "syncIntervalSeconds": zod.number(),
   "configVersion": zod.string(),
   "updateMode": zod.boolean(),
-  "normalCloseTimeoutSeconds": zod.number().min(getClientSyncConfigResponseNormalCloseTimeoutSecondsMin).max(getClientSyncConfigResponseNormalCloseTimeoutSecondsMax),
-  "closeOnStartTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponseCloseOnStartTimeoutSecondsMax),
   "policies": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
@@ -116,10 +113,14 @@ export const GetClientSyncConfigResponse = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })),
-  "graceSeconds": zod.number().min(getClientSyncConfigResponsePoliciesItemGraceSecondsMin),
-  "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsMax).default(getClientSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsDefault),
+  "updateMode": zod.boolean(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).default(getClientSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
+  "launchOnExitUpdateMode": zod.boolean().default(getClientSyncConfigResponsePoliciesItemLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(getClientSyncConfigResponsePoliciesItemLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(getClientSyncConfigResponsePoliciesItemLaunchArgumentsDefault),
+  "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))
@@ -129,11 +130,15 @@ export const GetClientSyncConfigResponse = zod.object({
 /**
  * @summary List software update policies
  */
-export const listSoftwareResponseGraceSecondsMin = 0;
+export const listSoftwareResponseNormalCloseTimeoutSecondsDefault = 30;
+export const listSoftwareResponseNormalCloseTimeoutSecondsMax = 3600;
 
+export const listSoftwareResponseUpdateModeCloseTimeoutSecondsDefault = 8;
 export const listSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const listSoftwareResponseLaunchOnExitUpdateModeDefault = false;
+export const listSoftwareResponseLaunchExecutablePathDefault = ``;
+export const listSoftwareResponseLaunchArgumentsDefault = ``;
 
 export const ListSoftwareResponseItem = zod.object({
   "id": zod.string(),
@@ -158,10 +163,14 @@ export const ListSoftwareResponseItem = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })),
-  "graceSeconds": zod.number().min(listSoftwareResponseGraceSecondsMin),
-  "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(listSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(listSoftwareResponseNormalCloseTimeoutSecondsMax).default(listSoftwareResponseNormalCloseTimeoutSecondsDefault),
+  "updateMode": zod.boolean(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(listSoftwareResponseUpdateModeCloseTimeoutSecondsMax).default(listSoftwareResponseUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
+  "launchOnExitUpdateMode": zod.boolean().default(listSoftwareResponseLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(listSoftwareResponseLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(listSoftwareResponseLaunchArgumentsDefault),
+  "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -172,12 +181,16 @@ export const ListSoftwareResponse = zod.array(ListSoftwareResponseItem)
  * @summary Create a software update policy
  */
 
-export const createSoftwareBodyGraceSecondsMin = 0;
-export const createSoftwareBodyGraceSecondsMax = 3600;
+export const createSoftwareBodyNormalCloseTimeoutSecondsDefault = 30;
+export const createSoftwareBodyNormalCloseTimeoutSecondsMax = 3600;
 
+export const createSoftwareBodyUpdateModeCloseTimeoutSecondsDefault = 8;
 export const createSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
 export const createSoftwareBodyAllowPostponeDefault = false;
+export const createSoftwareBodyLaunchOnExitUpdateModeDefault = false;
+export const createSoftwareBodyLaunchExecutablePathDefault = ``;
+export const createSoftwareBodyLaunchArgumentsDefault = ``;
 
 export const CreateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -201,18 +214,25 @@ export const CreateSoftwareBody = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })).optional(),
-  "graceSeconds": zod.number().min(createSoftwareBodyGraceSecondsMin).max(createSoftwareBodyGraceSecondsMax),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareBodyNormalCloseTimeoutSecondsMax).default(createSoftwareBodyNormalCloseTimeoutSecondsDefault),
   "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareBodyUpdateModeCloseTimeoutSecondsMax).default(createSoftwareBodyUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().default(createSoftwareBodyAllowPostponeDefault).describe('Show a Postpone action in the Windows close-warning dialog for this application.'),
+  "launchOnExitUpdateMode": zod.boolean().default(createSoftwareBodyLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(createSoftwareBodyLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(createSoftwareBodyLaunchArgumentsDefault),
   "enabled": zod.boolean()
 })
 
-export const createSoftwareResponseGraceSecondsMin = 0;
+export const createSoftwareResponseNormalCloseTimeoutSecondsDefault = 30;
+export const createSoftwareResponseNormalCloseTimeoutSecondsMax = 3600;
 
+export const createSoftwareResponseUpdateModeCloseTimeoutSecondsDefault = 8;
 export const createSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const createSoftwareResponseLaunchOnExitUpdateModeDefault = false;
+export const createSoftwareResponseLaunchExecutablePathDefault = ``;
+export const createSoftwareResponseLaunchArgumentsDefault = ``;
 
 export const CreateSoftwareResponse = zod.object({
   "id": zod.string(),
@@ -237,10 +257,14 @@ export const CreateSoftwareResponse = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })),
-  "graceSeconds": zod.number().min(createSoftwareResponseGraceSecondsMin),
-  "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareResponseNormalCloseTimeoutSecondsMax).default(createSoftwareResponseNormalCloseTimeoutSecondsDefault),
+  "updateMode": zod.boolean(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(createSoftwareResponseUpdateModeCloseTimeoutSecondsMax).default(createSoftwareResponseUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
+  "launchOnExitUpdateMode": zod.boolean().default(createSoftwareResponseLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(createSoftwareResponseLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(createSoftwareResponseLaunchArgumentsDefault),
+  "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -254,12 +278,16 @@ export const UpdateSoftwareParams = zod.object({
 })
 
 
-export const updateSoftwareBodyGraceSecondsMin = 0;
-export const updateSoftwareBodyGraceSecondsMax = 3600;
+export const updateSoftwareBodyNormalCloseTimeoutSecondsDefault = 30;
+export const updateSoftwareBodyNormalCloseTimeoutSecondsMax = 3600;
 
+export const updateSoftwareBodyUpdateModeCloseTimeoutSecondsDefault = 8;
 export const updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
 export const updateSoftwareBodyAllowPostponeDefault = false;
+export const updateSoftwareBodyLaunchOnExitUpdateModeDefault = false;
+export const updateSoftwareBodyLaunchExecutablePathDefault = ``;
+export const updateSoftwareBodyLaunchArgumentsDefault = ``;
 
 export const UpdateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -283,18 +311,25 @@ export const UpdateSoftwareBody = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })).optional(),
-  "graceSeconds": zod.number().min(updateSoftwareBodyGraceSecondsMin).max(updateSoftwareBodyGraceSecondsMax),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareBodyNormalCloseTimeoutSecondsMax).default(updateSoftwareBodyNormalCloseTimeoutSecondsDefault),
   "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax).optional(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareBodyUpdateModeCloseTimeoutSecondsMax).default(updateSoftwareBodyUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().default(updateSoftwareBodyAllowPostponeDefault).describe('Show a Postpone action in the Windows close-warning dialog for this application.'),
+  "launchOnExitUpdateMode": zod.boolean().default(updateSoftwareBodyLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(updateSoftwareBodyLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(updateSoftwareBodyLaunchArgumentsDefault),
   "enabled": zod.boolean()
 })
 
-export const updateSoftwareResponseGraceSecondsMin = 0;
+export const updateSoftwareResponseNormalCloseTimeoutSecondsDefault = 30;
+export const updateSoftwareResponseNormalCloseTimeoutSecondsMax = 3600;
 
+export const updateSoftwareResponseUpdateModeCloseTimeoutSecondsDefault = 8;
 export const updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const updateSoftwareResponseLaunchOnExitUpdateModeDefault = false;
+export const updateSoftwareResponseLaunchExecutablePathDefault = ``;
+export const updateSoftwareResponseLaunchArgumentsDefault = ``;
 
 export const UpdateSoftwareResponse = zod.object({
   "id": zod.string(),
@@ -319,10 +354,14 @@ export const UpdateSoftwareResponse = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })),
-  "graceSeconds": zod.number().min(updateSoftwareResponseGraceSecondsMin),
-  "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax).optional(),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareResponseNormalCloseTimeoutSecondsMax).default(updateSoftwareResponseNormalCloseTimeoutSecondsDefault),
+  "updateMode": zod.boolean(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateSoftwareResponseUpdateModeCloseTimeoutSecondsMax).default(updateSoftwareResponseUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
+  "launchOnExitUpdateMode": zod.boolean().default(updateSoftwareResponseLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(updateSoftwareResponseLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(updateSoftwareResponseLaunchArgumentsDefault),
+  "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -370,75 +409,39 @@ export const ListAuditEntriesResponse = zod.array(ListAuditEntriesResponseItem)
 /**
  * @summary Get server settings
  */
-export const getServerSettingsResponseSyncIntervalSecondsMin = 10;
-export const getServerSettingsResponseSyncIntervalSecondsMax = 86400;
-
 export const getServerSettingsResponseSyncPortMax = 65535;
-
-export const getServerSettingsResponseNormalCloseTimeoutSecondsMin = 5;
-export const getServerSettingsResponseNormalCloseTimeoutSecondsMax = 3600;
-
-export const getServerSettingsResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
 export const GetServerSettingsResponse = zod.object({
-  "syncIntervalSeconds": zod.number().min(getServerSettingsResponseSyncIntervalSecondsMin).max(getServerSettingsResponseSyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(getServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
   "apiKeyConfigured": zod.boolean(),
-  "apiKeyLastRotatedAt": zod.coerce.date().nullable(),
-  "updateMode": zod.boolean(),
-  "normalCloseTimeoutSeconds": zod.number().min(getServerSettingsResponseNormalCloseTimeoutSecondsMin).max(getServerSettingsResponseNormalCloseTimeoutSecondsMax),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getServerSettingsResponseUpdateModeCloseTimeoutSecondsMax)
+  "apiKeyLastRotatedAt": zod.coerce.date().nullable()
 })
 
 
 /**
  * @summary Update server settings
  */
-export const updateServerSettingsBodySyncIntervalSecondsMin = 10;
-export const updateServerSettingsBodySyncIntervalSecondsMax = 86400;
-
 export const updateServerSettingsBodySyncPortMax = 65535;
-
-export const updateServerSettingsBodyNormalCloseTimeoutSecondsMin = 5;
-export const updateServerSettingsBodyNormalCloseTimeoutSecondsMax = 3600;
-
-export const updateServerSettingsBodyUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
 export const UpdateServerSettingsBody = zod.object({
-  "syncIntervalSeconds": zod.number().min(updateServerSettingsBodySyncIntervalSecondsMin).max(updateServerSettingsBodySyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(updateServerSettingsBodySyncPortMax),
-  "adminHttpsEnabled": zod.boolean(),
-  "updateMode": zod.boolean(),
-  "normalCloseTimeoutSeconds": zod.number().min(updateServerSettingsBodyNormalCloseTimeoutSecondsMin).max(updateServerSettingsBodyNormalCloseTimeoutSecondsMax),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateServerSettingsBodyUpdateModeCloseTimeoutSecondsMax)
+  "adminHttpsEnabled": zod.boolean()
 })
 
-export const updateServerSettingsResponseSyncIntervalSecondsMin = 10;
-export const updateServerSettingsResponseSyncIntervalSecondsMax = 86400;
-
 export const updateServerSettingsResponseSyncPortMax = 65535;
-
-export const updateServerSettingsResponseNormalCloseTimeoutSecondsMin = 5;
-export const updateServerSettingsResponseNormalCloseTimeoutSecondsMax = 3600;
-
-export const updateServerSettingsResponseUpdateModeCloseTimeoutSecondsMax = 300;
 
 
 
 export const UpdateServerSettingsResponse = zod.object({
-  "syncIntervalSeconds": zod.number().min(updateServerSettingsResponseSyncIntervalSecondsMin).max(updateServerSettingsResponseSyncIntervalSecondsMax),
   "syncPort": zod.number().min(1).max(updateServerSettingsResponseSyncPortMax),
   "adminHttpsEnabled": zod.boolean(),
   "apiKeyConfigured": zod.boolean(),
-  "apiKeyLastRotatedAt": zod.coerce.date().nullable(),
-  "updateMode": zod.boolean(),
-  "normalCloseTimeoutSeconds": zod.number().min(updateServerSettingsResponseNormalCloseTimeoutSecondsMin).max(updateServerSettingsResponseNormalCloseTimeoutSecondsMax),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(updateServerSettingsResponseUpdateModeCloseTimeoutSecondsMax)
+  "apiKeyLastRotatedAt": zod.coerce.date().nullable()
 })
 
 
@@ -731,24 +734,21 @@ export const GetSyncConfigHeader = zod.object({
   "If-None-Match": zod.string().optional().describe('Previously returned synchronization configuration ETag.')
 })
 
-export const getSyncConfigResponseNormalCloseTimeoutSecondsMin = 5;
-export const getSyncConfigResponseNormalCloseTimeoutSecondsMax = 3600;
+export const getSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsDefault = 30;
+export const getSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsMax = 3600;
 
-export const getSyncConfigResponseCloseOnStartTimeoutSecondsMax = 3600;
-
-export const getSyncConfigResponsePoliciesItemGraceSecondsMin = 0;
-
+export const getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsDefault = 8;
 export const getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax = 300;
 
-
+export const getSyncConfigResponsePoliciesItemLaunchOnExitUpdateModeDefault = false;
+export const getSyncConfigResponsePoliciesItemLaunchExecutablePathDefault = ``;
+export const getSyncConfigResponsePoliciesItemLaunchArgumentsDefault = ``;
 
 export const GetSyncConfigResponse = zod.object({
   "clientId": zod.string(),
   "syncIntervalSeconds": zod.number(),
   "configVersion": zod.string(),
   "updateMode": zod.boolean(),
-  "normalCloseTimeoutSeconds": zod.number().min(getSyncConfigResponseNormalCloseTimeoutSecondsMin).max(getSyncConfigResponseNormalCloseTimeoutSecondsMax),
-  "closeOnStartTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponseCloseOnStartTimeoutSecondsMax),
   "policies": zod.array(zod.object({
   "id": zod.string(),
   "name": zod.string(),
@@ -772,10 +772,14 @@ export const GetSyncConfigResponse = zod.object({
   "key": zod.string(),
   "expectedValue": zod.string()
 })),
-  "graceSeconds": zod.number().min(getSyncConfigResponsePoliciesItemGraceSecondsMin),
-  "updateMode": zod.boolean().optional(),
-  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).optional(),
+  "normalCloseTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsMax).default(getSyncConfigResponsePoliciesItemNormalCloseTimeoutSecondsDefault),
+  "updateMode": zod.boolean(),
+  "updateModeCloseTimeoutSeconds": zod.number().min(1).max(getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsMax).default(getSyncConfigResponsePoliciesItemUpdateModeCloseTimeoutSecondsDefault),
   "allowPostpone": zod.boolean().describe('Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.'),
+  "launchOnExitUpdateMode": zod.boolean().default(getSyncConfigResponsePoliciesItemLaunchOnExitUpdateModeDefault),
+  "launchExecutablePath": zod.string().default(getSyncConfigResponsePoliciesItemLaunchExecutablePathDefault),
+  "launchArguments": zod.string().default(getSyncConfigResponsePoliciesItemLaunchArgumentsDefault),
+  "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))

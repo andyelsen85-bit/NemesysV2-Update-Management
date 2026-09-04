@@ -22,10 +22,10 @@ export interface SoftwarePolicyInput {
   iniChecks?: IniCheck[];
   iniRules?: IniRule[];
   /**
-     * @minimum 0
+     * @minimum 1
      * @maximum 3600
      */
-  graceSeconds: number;
+  normalCloseTimeoutSeconds: number;
   updateMode?: boolean;
   /**
      * @minimum 1
@@ -34,5 +34,8 @@ export interface SoftwarePolicyInput {
   updateModeCloseTimeoutSeconds?: number;
   /** Show a Postpone action in the Windows close-warning dialog for this application. */
   allowPostpone?: boolean;
+  launchOnExitUpdateMode?: boolean;
+  launchExecutablePath?: string;
+  launchArguments?: string;
   enabled: boolean;
 }

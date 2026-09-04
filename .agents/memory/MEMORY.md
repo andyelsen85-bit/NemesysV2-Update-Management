@@ -3,3 +3,4 @@
 - [Nemesys security, TLS, and MSI](nemesys-security-and-msi.md) — Direct web Service owns 80/443; protected settings require stable SESSION_SECRET; MSI builds run on Windows.
 - [Nemesys container publishing](nemesys-container-publishing.md) — GitHub Actions publishes amd64 API and console images to GHCR with immutable SHA tags and a moving latest tag.
 - [Windows companion IPC](windows-companion-ipc.md) — LocalSystem must own the warning pipe and authenticate the installed interactive companion before trusting responses.
+- [Update Mode exit ownership](update-mode-exit-ownership.md) — self-update exit cycles exclusively own enforcement and require fresh cycle identity after re-enable.

@@ -52,17 +52,13 @@ const schemaStatements = [
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_server_settings (
     id text PRIMARY KEY NOT NULL,
-    sync_interval_seconds integer DEFAULT 300 NOT NULL,
     sync_port integer DEFAULT 443 NOT NULL,
     admin_https_enabled boolean DEFAULT true NOT NULL,
     admin_username text DEFAULT 'admin' NOT NULL,
     admin_password_hash text,
     client_api_key_hash text,
     client_api_key_encrypted text,
-    api_key_last_rotated_at timestamp with time zone,
-    update_mode boolean DEFAULT false NOT NULL,
-    normal_close_timeout_seconds integer DEFAULT 30 NOT NULL,
-    update_mode_close_timeout_seconds integer DEFAULT 8 NOT NULL
+    api_key_last_rotated_at timestamp with time zone
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_software_policies (
     id text PRIMARY KEY NOT NULL,
@@ -74,12 +70,18 @@ const schemaStatements = [
     exe_checks jsonb DEFAULT '[]'::jsonb NOT NULL,
     ini_checks jsonb DEFAULT '[]'::jsonb NOT NULL,
     ini_rules jsonb DEFAULT '[]'::jsonb NOT NULL,
-    grace_seconds integer DEFAULT 30 NOT NULL,
+    normal_close_timeout_seconds integer DEFAULT 30 NOT NULL,
     update_mode boolean DEFAULT false NOT NULL,
     update_mode_close_timeout_seconds integer DEFAULT 8 NOT NULL,
     allow_postpone boolean DEFAULT false NOT NULL,
+    launch_on_exit_update_mode boolean DEFAULT false NOT NULL,
+    launch_executable_path text DEFAULT '' NOT NULL,
+    launch_arguments text DEFAULT '' NOT NULL,
+    update_mode_cycle_id text DEFAULT 'initial' NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
-    last_updated timestamp with time zone DEFAULT now() NOT NULL
+    last_updated timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT nemesys_software_policies_normal_close_timeout_seconds_check
+      CHECK (normal_close_timeout_seconds BETWEEN 1 AND 3600)
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_ssl_settings (
     id text PRIMARY KEY NOT NULL,

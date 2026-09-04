@@ -25,10 +25,14 @@ export const softwarePoliciesTable = pgTable("nemesys_software_policies", {
   exeChecks: jsonb("exe_checks").$type<Array<{ executable: string; targetVersion: string; installCommand?: string }>>().notNull().default([]),
   iniChecks: jsonb("ini_checks").$type<Array<{ filePath: string; section: string; key: string; expectedValue: string }>>().notNull().default([]),
   iniRules: jsonb("ini_rules").$type<Array<{ section: string; key: string; expectedValue: string }>>().notNull().default([]),
-  graceSeconds: integer("grace_seconds").notNull().default(30),
+  normalCloseTimeoutSeconds: integer("normal_close_timeout_seconds").notNull().default(30),
   updateMode: boolean("update_mode").notNull().default(false),
   updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
   allowPostpone: boolean("allow_postpone").notNull().default(false),
+  launchOnExitUpdateMode: boolean("launch_on_exit_update_mode").notNull().default(false),
+  launchExecutablePath: text("launch_executable_path").notNull().default(""),
+  launchArguments: text("launch_arguments").notNull().default(""),
+  updateModeCycleId: text("update_mode_cycle_id").notNull().default("initial"),
   enabled: boolean("enabled").notNull().default(true),
   lastUpdated: timestamp("last_updated", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -52,7 +56,6 @@ export const auditEntriesTable = pgTable("nemesys_audit_entries", {
 
 export const serverSettingsTable = pgTable("nemesys_server_settings", {
   id: text("id").primaryKey(),
-  syncIntervalSeconds: integer("sync_interval_seconds").notNull().default(300),
   syncPort: integer("sync_port").notNull().default(443),
   adminHttpsEnabled: boolean("admin_https_enabled").notNull().default(true),
   adminUsername: text("admin_username").notNull().default("admin"),
@@ -60,9 +63,6 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   clientApiKeyHash: text("client_api_key_hash"),
   clientApiKeyEncrypted: text("client_api_key_encrypted"),
   apiKeyLastRotatedAt: timestamp("api_key_last_rotated_at", { withTimezone: true }),
-  updateMode: boolean("update_mode").notNull().default(false),
-  normalCloseTimeoutSeconds: integer("normal_close_timeout_seconds").notNull().default(30),
-  updateModeCloseTimeoutSeconds: integer("update_mode_close_timeout_seconds").notNull().default(8),
 });
 
 export const adminUsersTable = pgTable("nemesys_admin_users", {

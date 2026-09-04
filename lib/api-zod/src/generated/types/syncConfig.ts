@@ -12,15 +12,5 @@ export interface SyncConfig {
   syncIntervalSeconds: number;
   configVersion: string;
   updateMode: boolean;
-  /**
-     * @minimum 5
-     * @maximum 3600
-     */
-  normalCloseTimeoutSeconds: number;
-  /**
-     * @minimum 1
-     * @maximum 3600
-     */
-  closeOnStartTimeoutSeconds: number;
   policies: SoftwarePolicy[];
 }

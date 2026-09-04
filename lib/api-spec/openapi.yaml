@@ -643,7 +643,7 @@ components:
         expectedValue: { type: string }
     SoftwarePolicy:
       type: object
-      required: [id, name, executable, targetVersion, ruleType, supervisedExecutables, exeChecks, iniChecks, iniRules, graceSeconds, allowPostpone, enabled, lastUpdated]
+      required: [id, name, executable, targetVersion, ruleType, supervisedExecutables, exeChecks, iniChecks, iniRules, normalCloseTimeoutSeconds, updateMode, updateModeCloseTimeoutSeconds, allowPostpone, launchOnExitUpdateMode, launchExecutablePath, launchArguments, updateModeCycleId, enabled, lastUpdated]
       properties:
         id: { type: string }
         name: { type: string }
@@ -665,19 +665,25 @@ components:
         iniRules:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
-        graceSeconds: { type: number, minimum: 0 }
+        normalCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 3600, default: 30 }
         updateMode: { type: boolean }
-        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300, default: 8 }
         allowPostpone:
           type: boolean
           description: Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization.
+        launchOnExitUpdateMode: { type: boolean, default: false }
+        launchExecutablePath: { type: string, default: "" }
+        launchArguments: { type: string, default: "" }
+        updateModeCycleId:
+          type: string
+          description: Server-generated identifier for the current Update Mode cycle.
         enabled: { type: boolean }
         lastUpdated:
           type: string
           format: date-time
     SoftwarePolicyInput:
       type: object
-      required: [name, ruleType, graceSeconds, enabled]
+      required: [name, ruleType, normalCloseTimeoutSeconds, enabled]
       properties:
         name: { type: string, minLength: 1 }
         executable: { type: string }
@@ -698,13 +704,16 @@ components:
         iniRules:
           type: array
           items: { $ref: "#/components/schemas/IniRule" }
-        graceSeconds: { type: number, minimum: 0, maximum: 3600 }
+        normalCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 3600, default: 30 }
         updateMode: { type: boolean }
-        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
+        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300, default: 8 }
         allowPostpone:
           type: boolean
           default: false
           description: Show a Postpone action in the Windows close-warning dialog for this application.
+        launchOnExitUpdateMode: { type: boolean, default: false }
+        launchExecutablePath: { type: string, default: "" }
+        launchArguments: { type: string, default: "" }
         enabled: { type: boolean }
     AuditEntry:
       type: object
@@ -733,28 +742,20 @@ components:
         compliant: { type: boolean }
     ServerSettings:
       type: object
-      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, apiKeyConfigured, apiKeyLastRotatedAt, updateMode, normalCloseTimeoutSeconds, updateModeCloseTimeoutSeconds]
+      required: [syncPort, adminHttpsEnabled, apiKeyConfigured, apiKeyLastRotatedAt]
       properties:
-        syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
         apiKeyConfigured: { type: boolean }
         apiKeyLastRotatedAt:
           type: ["string", "null"]
           format: date-time
-        updateMode: { type: boolean }
-        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
-        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
     ServerSettingsInput:
       type: object
-      required: [syncIntervalSeconds, syncPort, adminHttpsEnabled, updateMode, normalCloseTimeoutSeconds, updateModeCloseTimeoutSeconds]
+      required: [syncPort, adminHttpsEnabled]
       properties:
-        syncIntervalSeconds: { type: number, minimum: 10, maximum: 86400 }
         syncPort: { type: number, minimum: 1, maximum: 65535 }
         adminHttpsEnabled: { type: boolean }
-        updateMode: { type: boolean }
-        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
-        updateModeCloseTimeoutSeconds: { type: number, minimum: 1, maximum: 300 }
     ApiKeyRotation:
       type: object
       required: [apiKey, maskedApiKey, rotatedAt]
@@ -869,14 +870,12 @@ components:
         isActive: { type: boolean }
     SyncConfig:
       type: object
-      required: [clientId, syncIntervalSeconds, configVersion, updateMode, normalCloseTimeoutSeconds, closeOnStartTimeoutSeconds, policies]
+      required: [clientId, syncIntervalSeconds, configVersion, updateMode, policies]
       properties:
         clientId: { type: string }
         syncIntervalSeconds: { type: number }
         configVersion: { type: string }
         updateMode: { type: boolean }
-        normalCloseTimeoutSeconds: { type: number, minimum: 5, maximum: 3600 }
-        closeOnStartTimeoutSeconds: { type: number, minimum: 1, maximum: 3600 }
         policies:
           type: array
           items: { $ref: "#/components/schemas/SoftwarePolicy" }

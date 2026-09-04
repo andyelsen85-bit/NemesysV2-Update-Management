@@ -1,6 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, count, countDistinct, desc, eq, gte, max, ne, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   auditEntriesTable,
@@ -159,18 +159,17 @@ async function sendSyncConfig(clientId: string, req: Request, res: Response, rec
     res.status(404).json({ error: "Client not found" });
     return;
   }
-  const [policyState] = await db
-    .select({ count: count(), latestUpdated: max(softwarePoliciesTable.lastUpdated) })
-    .from(softwarePoliciesTable)
-    .where(eq(softwarePoliciesTable.enabled, true));
+  const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
+  const applicationUpdateMode = policies.some((policy) => policy.updateMode);
+  const syncIntervalSeconds = applicationUpdateMode ? 30 : 300;
   const etag = `"${createHash("sha256").update(JSON.stringify({
-    syncConfigFormat: 2,
-    syncIntervalSeconds: settings.syncIntervalSeconds,
-    updateMode: settings.updateMode,
-    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
-    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
-    enabledPolicyCount: Number(policyState?.count ?? 0),
-    latestPolicyUpdate: policyState?.latestUpdated?.toISOString() ?? null,
+    syncConfigFormat: 3,
+    syncIntervalSeconds,
+    updateMode: applicationUpdateMode,
+    policies: policies.map((policy) => ({
+      ...toApiPolicy(policy),
+      lastUpdated: policy.lastUpdated.toISOString(),
+    })),
   })).digest("hex")}"`;
   res.setHeader("ETag", etag);
   res.setHeader("Cache-Control", "private, no-cache");
@@ -193,18 +192,11 @@ async function sendSyncConfig(clientId: string, req: Request, res: Response, rec
     res.status(304).end();
     return;
   }
-  const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
-  const applicationUpdateMode = policies.some((policy) => policy.updateMode);
-  const shortestApplicationTimeout = policies
-    .filter((policy) => policy.updateMode)
-    .reduce((shortest, policy) => Math.min(shortest, policy.updateModeCloseTimeoutSeconds), settings.updateModeCloseTimeoutSeconds);
   const config = GetSyncConfigResponse.parse({
     clientId,
-    syncIntervalSeconds: settings.syncIntervalSeconds,
+    syncIntervalSeconds,
     configVersion: etag.slice(1, -1),
     updateMode: applicationUpdateMode,
-    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
-    closeOnStartTimeoutSeconds: applicationUpdateMode ? shortestApplicationTimeout : settings.normalCloseTimeoutSeconds,
     policies: policies.map(toApiPolicy),
   });
   if (recordClientPoll) {
@@ -260,10 +252,14 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     exeChecks,
     iniChecks,
     iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
-    graceSeconds: parsed.data.graceSeconds,
+    normalCloseTimeoutSeconds: parsed.data.normalCloseTimeoutSeconds,
     updateMode: parsed.data.updateMode ?? false,
     updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
     allowPostpone: parsed.data.allowPostpone ?? false,
+    launchOnExitUpdateMode: parsed.data.launchOnExitUpdateMode ?? false,
+    launchExecutablePath: parsed.data.launchExecutablePath ?? "",
+    launchArguments: parsed.data.launchArguments ?? "",
+    updateModeCycleId: `cycle-${crypto.randomUUID()}`,
     enabled: parsed.data.enabled,
   }).returning();
   res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy(policy)));
@@ -285,26 +281,45 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
     ? [{ executable: parsed.data.executable, targetVersion: parsed.data.targetVersion }]
     : []);
   const iniChecks = parsed.data.iniChecks ?? (parsed.data.iniRules ?? []).map((rule) => ({ filePath: "", ...rule }));
-  const [policy] = await db
-    .update(softwarePoliciesTable)
-    .set({
-      name: parsed.data.name,
-      executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
-      targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
-      ruleType: parsed.data.ruleType,
-      supervisedExecutables: parsed.data.supervisedExecutables ?? [],
-      exeChecks,
-      iniChecks,
-      iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
-      graceSeconds: parsed.data.graceSeconds,
-      updateMode: parsed.data.updateMode ?? false,
-      updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
-      allowPostpone: parsed.data.allowPostpone ?? false,
-      enabled: parsed.data.enabled,
-      lastUpdated: new Date(),
-    })
-    .where(eq(softwarePoliciesTable.id, params.data.id))
-    .returning();
+  const policy = await db.transaction(async (transaction) => {
+    const [current] = await transaction
+      .select()
+      .from(softwarePoliciesTable)
+      .where(eq(softwarePoliciesTable.id, params.data.id))
+      .for("update")
+      .limit(1);
+    if (!current) return null;
+
+    const nextEnabled = parsed.data.enabled;
+    const nextUpdateMode = parsed.data.updateMode ?? false;
+    const [updated] = await transaction
+      .update(softwarePoliciesTable)
+      .set({
+        name: parsed.data.name,
+        executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
+        targetVersion: parsed.data.targetVersion ?? exeChecks[0]?.targetVersion ?? "-",
+        ruleType: parsed.data.ruleType,
+        supervisedExecutables: parsed.data.supervisedExecutables ?? [],
+        exeChecks,
+        iniChecks,
+        iniRules: parsed.data.iniRules ?? iniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+        normalCloseTimeoutSeconds: parsed.data.normalCloseTimeoutSeconds,
+        updateMode: nextUpdateMode,
+        updateModeCloseTimeoutSeconds: parsed.data.updateModeCloseTimeoutSeconds ?? 8,
+        allowPostpone: parsed.data.allowPostpone ?? false,
+        launchOnExitUpdateMode: parsed.data.launchOnExitUpdateMode ?? false,
+        launchExecutablePath: parsed.data.launchExecutablePath ?? "",
+        launchArguments: parsed.data.launchArguments ?? "",
+        updateModeCycleId: nextEnabled && nextUpdateMode && (!current.enabled || !current.updateMode)
+          ? `cycle-${crypto.randomUUID()}`
+          : current.updateModeCycleId,
+        enabled: nextEnabled,
+        lastUpdated: new Date(),
+      })
+      .where(eq(softwarePoliciesTable.id, params.data.id))
+      .returning();
+    return updated ?? null;
+  });
   if (!policy) {
     res.status(404).json({ error: "Software policy not found" });
     return;
@@ -347,14 +362,10 @@ router.get("/settings", requireAdmin, async (_req, res): Promise<void> => {
     return;
   }
   res.json(GetServerSettingsResponse.parse({
-    syncIntervalSeconds: settings.syncIntervalSeconds,
     syncPort: settings.syncPort,
     adminHttpsEnabled: settings.adminHttpsEnabled,
     apiKeyConfigured: Boolean(settings.clientApiKeyHash),
     apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
-    updateMode: settings.updateMode,
-    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
-    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
   }));
 });
 
@@ -370,14 +381,10 @@ router.patch("/settings", requireAdmin, async (req, res): Promise<void> => {
     return;
   }
   res.json(UpdateServerSettingsResponse.parse({
-    syncIntervalSeconds: settings.syncIntervalSeconds,
     syncPort: settings.syncPort,
     adminHttpsEnabled: settings.adminHttpsEnabled,
     apiKeyConfigured: Boolean(settings.clientApiKeyHash),
     apiKeyLastRotatedAt: settings.apiKeyLastRotatedAt,
-    updateMode: settings.updateMode,
-    normalCloseTimeoutSeconds: settings.normalCloseTimeoutSeconds,
-    updateModeCloseTimeoutSeconds: settings.updateModeCloseTimeoutSeconds,
   }));
 });
 

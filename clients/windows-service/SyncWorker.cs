@@ -61,7 +61,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 await EvaluateAndReportAsync(poll.Config, poll.Modified, stoppingToken);
                 await DelayUntilNextScanAsync(
                     scanStarted,
-                    GetPollDelay(poll.Config.SyncIntervalSeconds),
+                    GetPollDelay(poll.Config),
                     stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -92,7 +92,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 }
                 await DelayUntilNextScanAsync(
                     scanStarted,
-                    GetPollDelay(cachedSyncConfig?.SyncIntervalSeconds ?? 30),
+                    GetPollDelay(cachedSyncConfig),
                     stoppingToken);
             }
         }
@@ -138,6 +138,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         bool configurationChanged,
         CancellationToken cancellationToken)
     {
+        ReconcileEnforcementStates(sync.Policies.Where(policy => policy.Enabled).Select(policy => policy.Id));
         var results = sync.Policies.Select(policy => (Policy: policy, Result: EvaluatePolicy(policy))).ToList();
         var nonCompliantPolicies = results.Where(item => !item.Result.Compliant).ToList();
         var complianceChanged = results.Any(item =>
@@ -149,8 +150,13 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             results.Count, configuration.Hostname, nonCompliantPolicies.Count);
         foreach (var item in results)
         {
-            ScheduleEnforcement(item.Policy, item.Result.Compliant, sync, cancellationToken);
+            // An observed launch-on-exit cycle owns this scan (and later scans
+            // for that cycle). Do not race its self-update launch with the
+            // ordinary warning/close/silent-installer enforcement path.
+            if (!ProcessUpdateModeExit(item.Policy, item.Result.Compliant))
+                ScheduleEnforcement(item.Policy, item.Result.Compliant, cancellationToken);
         }
+        UpdateModeLaunchLedger.CleanReceivedPolicies(sync.Policies.Select(policy => policy.Id), logger);
 
         if (nonCompliantPolicies.Count > 0)
         {
@@ -178,9 +184,10 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     }
 
     private void ScheduleEnforcement(
-        SoftwarePolicy policy, bool compliant, SyncConfig sync, CancellationToken cancellationToken)
+        SoftwarePolicy policy, bool compliant, CancellationToken cancellationToken)
     {
-        var signature = GetPolicySignature(policy, sync);
+        if (!policy.Enabled) return;
+        var signature = GetPolicySignature(policy);
         lock (enforcementLock)
         {
             if (!enforcementStates.TryGetValue(policy.Id, out var state))
@@ -192,6 +199,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
             if (compliant)
             {
+                state.Generation++;
                 state.Cancellation?.Cancel();
                 state.CooldownUntil = DateTimeOffset.MinValue;
                 state.Signature = signature;
@@ -201,6 +209,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
             if (!string.Equals(state.Signature, signature, StringComparison.Ordinal))
             {
+                state.Generation++;
                 state.Cancellation?.Cancel();
                 state.Signature = signature;
                 state.CooldownUntil = DateTimeOffset.MinValue;
@@ -238,8 +247,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
             state.Cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var enforcementCancellationToken = state.Cancellation.Token;
+            var generation = state.Generation;
             state.Task = Task.Run(
-                () => EnforcePolicyAsync(policy, sync, state, signature, enforcementCancellationToken),
+                () => EnforcePolicyAsync(policy, state, signature, generation, enforcementCancellationToken),
                 CancellationToken.None);
             _ = state.Task.ContinueWith(task =>
             {
@@ -258,12 +268,12 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     }
 
     private async Task EnforcePolicyAsync(
-        SoftwarePolicy policy, SyncConfig sync,
-        EnforcementState state, string signature, CancellationToken cancellationToken)
+        SoftwarePolicy policy,
+        EnforcementState state, string signature, int generation, CancellationToken cancellationToken)
     {
         try
         {
-            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
             var processState = GetManagedProcessState(policy);
             if (processState == ManagedProcessState.Unknown)
             {
@@ -276,16 +286,17 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             if (processState == ManagedProcessState.NotRunning)
             {
                 logger.LogInformation("No managed process is running for {ApplicationName}; running silent installation without a warning", policy.Name);
-                if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
-                var installationAttempted = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
+                var installationAttempted = await RunSilentInstallCommandsAsync(policy, state, signature, generation, cancellationToken);
                 SetCooldownOrClear(state, signature, installationAttempted);
                 return;
             }
 
-            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
             var timeout = policy.UpdateMode
                 ? Math.Max(1, policy.UpdateModeCloseTimeoutSeconds)
-                : Math.Max(5, sync.NormalCloseTimeoutSeconds);
+                : Math.Max(1, policy.NormalCloseTimeoutSeconds);
+            if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
             var outcome = await SessionWarningChannel.ShowAsync(
                 policy.Name, timeout, policy.AllowPostpone, logger, cancellationToken);
             if (outcome == WarningOutcome.Postpone)
@@ -301,7 +312,7 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 return;
             }
 
-            if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
+            if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
             var currentResult = EvaluatePolicy(policy);
             if (currentResult.Compliant)
             {
@@ -325,20 +336,21 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
                 logger.LogInformation(
                     "Managed process for {ApplicationName} exited before closure; continuing without a kill",
                     policy.Name);
-                if (!IsCurrentEnforcement(state, signature, cancellationToken)) return;
-                var installationAttempted = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+                if (!IsCurrentEnforcement(state, signature, generation, cancellationToken)) return;
+                var installationAttempted = await RunSilentInstallCommandsAsync(policy, state, signature, generation, cancellationToken);
                 SetCooldownOrClear(state, signature, installationAttempted);
                 return;
             }
 
-            if (!CloseManagedProcesses(new[] { policy }, cancellationToken))
+            if (!IsCurrentEnforcement(state, signature, generation, cancellationToken) ||
+                !CloseManagedProcesses(new[] { policy }, state, signature, generation, cancellationToken))
             {
                 logger.LogWarning("Managed process closure did not complete for {ApplicationName}; skipping installation", policy.Name);
                 SetCooldown(state, signature, TimeSpan.FromMinutes(1));
                 return;
             }
             RecordObservedProcessState(state, signature, ManagedProcessState.NotRunning);
-            var installAttemptedAfterClosure = await RunSilentInstallCommandsAsync(policy, cancellationToken);
+            var installAttemptedAfterClosure = await RunSilentInstallCommandsAsync(policy, state, signature, generation, cancellationToken);
             SetCooldownOrClear(state, signature, installAttemptedAfterClosure);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -355,12 +367,14 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
     private bool IsCurrentEnforcement(
         EnforcementState state,
         string signature,
+        int generation,
         CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested) return false;
         lock (enforcementLock)
         {
             return !state.Compliant &&
+                state.Generation == generation &&
                 string.Equals(state.Signature, signature, StringComparison.Ordinal) &&
                 !cancellationToken.IsCancellationRequested;
         }
@@ -405,8 +419,116 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         }
     }
 
-    private static string GetPolicySignature(SoftwarePolicy policy, SyncConfig sync) =>
-        $"{sync.ConfigVersion}|{sync.NormalCloseTimeoutSeconds}|{JsonSerializer.Serialize(policy, JsonOptions.Default)}";
+    private static string GetPolicySignature(SoftwarePolicy policy) =>
+        JsonSerializer.Serialize(policy, JsonOptions.Default);
+
+    private bool ProcessUpdateModeExit(SoftwarePolicy policy, bool compliant)
+    {
+        if (!policy.Enabled || string.IsNullOrWhiteSpace(policy.UpdateModeCycleId))
+            return false;
+
+        var cycleId = policy.UpdateModeCycleId;
+        if (policy.UpdateMode)
+        {
+            UpdateModeLaunchLedger.ObserveActive(policy.Id, cycleId, logger);
+            return false;
+        }
+
+        var exitState = UpdateModeLaunchLedger.ObserveExit(policy.Id, cycleId, logger);
+        if (exitState == UpdateModeExitState.SelfUpdateHandled)
+        {
+            SuppressOrdinaryEnforcement(policy.Id);
+            return true;
+        }
+        if (!policy.LaunchOnExitUpdateMode)
+        {
+            // Consume an observed exit while the option is off. A later
+            // configuration edit must not reinterpret this old cycle as a
+            // newly eligible self-update launch.
+            if (exitState == UpdateModeExitState.Pending)
+                UpdateModeLaunchLedger.MarkLaunchDisabled(policy.Id, cycleId, logger);
+            return false;
+        }
+        if (exitState != UpdateModeExitState.Pending)
+            return false; // Initial false configuration and restarted services are not exits.
+
+        SuppressOrdinaryEnforcement(policy.Id);
+        if (compliant)
+        {
+            UpdateModeLaunchLedger.Complete(policy.Id, cycleId, "compliant", logger);
+            return true;
+        }
+
+        var sessionId = SessionCompanionLauncher.GetActiveSessionId(logger);
+        if (sessionId is null)
+        {
+            logger.LogInformation("Update-mode exit launch for {ApplicationName} remains pending because no active user session exists", policy.Name);
+            return true;
+        }
+
+        // A scan can be delayed; re-evaluate directly before the one allowed launch.
+        if (EvaluatePolicy(policy).Compliant)
+        {
+            UpdateModeLaunchLedger.Complete(policy.Id, cycleId, "compliant before launch", logger);
+            return true;
+        }
+        var executable = policy.LaunchExecutablePath;
+        if (!string.IsNullOrWhiteSpace(executable) &&
+            Path.IsPathFullyQualified(executable) &&
+            SessionCompanionLauncher.IsExecutableRunningInSession(executable, sessionId.Value))
+        {
+            UpdateModeLaunchLedger.Complete(policy.Id, cycleId, "already running", logger);
+            logger.LogInformation("Update-mode exit launch skipped for {ApplicationName}; executable is already running in session {SessionId}", policy.Name, sessionId);
+            return true;
+        }
+        if (string.IsNullOrWhiteSpace(executable) ||
+            !Path.IsPathFullyQualified(executable) ||
+            !File.Exists(executable))
+        {
+            UpdateModeLaunchLedger.Attempt(policy.Id, cycleId, "missing executable", logger);
+            logger.LogWarning("Update-mode exit launch for {ApplicationName} was not attempted because its executable is unavailable", policy.Name);
+            return true;
+        }
+
+        // Persist this state before CreateProcessAsUser: a crash/restart can
+        // turn a launch into a failed attempt, but can never duplicate it.
+        if (!UpdateModeLaunchLedger.Attempt(policy.Id, cycleId, "launching", logger))
+            return true;
+        if (SessionCompanionLauncher.LaunchExecutable(
+                sessionId.Value, executable, policy.LaunchArguments, logger))
+            logger.LogInformation("Started update-mode exit executable for {ApplicationName} in session {SessionId}", policy.Name, sessionId);
+        else
+            logger.LogWarning("Update-mode exit executable launch failed for {ApplicationName}; this cycle will not be retried", policy.Name);
+        return true;
+    }
+
+    private void ReconcileEnforcementStates(IEnumerable<string> enabledPolicyIds)
+    {
+        var enabled = new HashSet<string>(enabledPolicyIds, StringComparer.OrdinalIgnoreCase);
+        lock (enforcementLock)
+        {
+            foreach (var item in enforcementStates.Where(item => !enabled.Contains(item.Key)).ToList())
+            {
+                item.Value.Generation++;
+                item.Value.Compliant = true;
+                item.Value.Cancellation?.Cancel();
+                enforcementStates.Remove(item.Key);
+                logger.LogInformation("Cancelled ordinary enforcement for policy {PolicyId} because it is no longer received as enabled", item.Key);
+            }
+        }
+    }
+
+    private void SuppressOrdinaryEnforcement(string policyId)
+    {
+        lock (enforcementLock)
+        {
+            if (!enforcementStates.TryGetValue(policyId, out var state)) return;
+            state.Generation++;
+            state.Compliant = true;
+            state.Cancellation?.Cancel();
+            logger.LogInformation("Cancelled ordinary enforcement for policy {PolicyId}; update-mode exit owns this cycle", policyId);
+        }
+    }
 
     private ApplicationResult EvaluatePolicy(SoftwarePolicy policy)
     {
@@ -447,6 +569,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
     private bool CloseManagedProcesses(
         IEnumerable<SoftwarePolicy> policies,
+        EnforcementState state,
+        string signature,
+        int generation,
         CancellationToken cancellationToken)
     {
         var processNames = GetManagedProcessNames(policies);
@@ -475,8 +600,11 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             {
                 try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    process.Kill(entireProcessTree: true);
+                    if (!TryKillManagedProcess(process, state, signature, generation, cancellationToken))
+                    {
+                        logger.LogInformation("Stopped process closure because ordinary enforcement was cancelled or superseded");
+                        return false;
+                    }
                     if (process.WaitForExit(TimeSpan.FromSeconds(5)))
                         logger.LogInformation("Confirmed closure of {ProcessName} (PID {ProcessId})", processName, process.Id);
                     else
@@ -531,6 +659,26 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
         logger.LogInformation("Managed process closure completed; no configured processes remain");
         return true;
+    }
+
+    private bool TryKillManagedProcess(
+        Process process,
+        EnforcementState state,
+        string signature,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        // Serialize the irreversible Kill call with cancellation/suppression.
+        lock (enforcementLock)
+        {
+            if (cancellationToken.IsCancellationRequested ||
+                state.Compliant ||
+                state.Generation != generation ||
+                !string.Equals(state.Signature, signature, StringComparison.Ordinal))
+                return false;
+            process.Kill(entireProcessTree: true);
+            return true;
+        }
     }
 
     private ManagedProcessState GetManagedProcessState(SoftwarePolicy policy)
@@ -599,6 +747,9 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
 
     private async Task<bool> RunSilentInstallCommandsAsync(
         SoftwarePolicy policy,
+        EnforcementState state,
+        string signature,
+        int generation,
         CancellationToken cancellationToken)
     {
         var installationAttempted = false;
@@ -612,14 +763,15 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             installationAttempted = true;
             try
             {
-                using var process = Process.Start(new ProcessStartInfo
+                using var process = StartSilentInstallCommand(
+                    check, state, signature, generation, cancellationToken);
+                if (process is null)
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/D /C {check.InstallCommand}",
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                    WindowStyle = ProcessWindowStyle.Hidden,
-                }) ?? throw new InvalidOperationException("cmd.exe did not start.");
+                    logger.LogInformation(
+                        "Skipped silent installation for {Executable} because ordinary enforcement was cancelled or superseded",
+                        check.Executable);
+                    return installationAttempted;
+                }
                 logger.LogInformation(
                     "Started silent installation for {Executable} (PID {ProcessId})",
                     check.Executable, process.Id);
@@ -638,6 +790,35 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return installationAttempted;
     }
 
+    private Process? StartSilentInstallCommand(
+        ExeCheck check,
+        EnforcementState state,
+        string signature,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        // Starting cmd.exe is the irreversible part of ordinary enforcement.
+        // Hold the same lock used by cancellation while evaluating state and
+        // starting it, so cancellation either wins first or follows a process
+        // that was already launched (which we intentionally never kill).
+        lock (enforcementLock)
+        {
+            if (cancellationToken.IsCancellationRequested ||
+                state.Compliant ||
+                state.Generation != generation ||
+                !string.Equals(state.Signature, signature, StringComparison.Ordinal))
+                return null;
+            return Process.Start(new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/D /C {check.InstallCommand}",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = ProcessWindowStyle.Hidden,
+            }) ?? throw new InvalidOperationException("cmd.exe did not start.");
+        }
+    }
+
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)
     {
         var request = new HttpRequestMessage(method, $"{configuration.ApiBase}{path}");
@@ -646,11 +827,15 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
         return request;
     }
 
-    private static TimeSpan GetPollDelay(int intervalSeconds)
+    private static TimeSpan GetPollDelay(SyncConfig? sync)
     {
-        var baseline = Math.Max(10, intervalSeconds);
+        // The server still sends its effective interval for compatibility, but
+        // client cadence is intentionally driven by received update-mode policy.
+        var baseline = sync?.Policies.Any(policy => policy.Enabled && policy.UpdateMode) == true
+            ? 30
+            : 300;
         var jittered = baseline * (0.9 + Random.Shared.NextDouble() * 0.2);
-        return TimeSpan.FromSeconds(Math.Min(30, Math.Max(10, jittered)));
+        return TimeSpan.FromSeconds(jittered);
     }
 
     private static async Task DelayUntilNextScanAsync(
@@ -880,6 +1065,7 @@ internal static class SessionWarningChannel
 
 internal enum WarningOutcome { Proceed, Postpone, CompanionUnavailable }
 internal enum ManagedProcessState { Running, NotRunning, Unknown }
+internal enum UpdateModeExitState { None, Pending, SelfUpdateHandled, LaunchDisabled }
 
 internal sealed class EnforcementState
 {
@@ -889,6 +1075,168 @@ internal sealed class EnforcementState
     public string? Signature { get; set; }
     public bool Compliant { get; set; }
     public bool? LastObservedRunning { get; set; }
+    public int Generation { get; set; }
+}
+
+internal static class UpdateModeLaunchLedger
+{
+    private static readonly object Gate = new();
+    private static readonly string DirectoryPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NemesysV2");
+    private static readonly string FilePath = Path.Combine(DirectoryPath, "update-mode-launch-ledger.json");
+
+    // This ledger deliberately contains only policy IDs, opaque cycle IDs, and
+    // lifecycle state; launch paths, arguments, and any client credentials are
+    // never persisted here.
+    public static void ObserveActive(string policyId, string cycleId, ILogger logger) =>
+        Change(policyId, cycleId, logger, entry =>
+        {
+            if (entry.State == "unobserved")
+                entry.State = "active";
+            return false;
+        });
+
+    public static UpdateModeExitState ObserveExit(string policyId, string cycleId, ILogger logger) =>
+        Change(policyId, cycleId, logger, entry =>
+        {
+            if (entry.State == "active")
+            {
+                entry.State = "pending";
+                return UpdateModeExitState.Pending;
+            }
+            // Once a self-update is attempted or completed, its launch
+            // decision permanently owns this cycle. Pending remains eligible
+            // for a later session; launch-disabled explicitly returns ordinary
+            // enforcement to the policy.
+            return entry.State switch
+            {
+                "pending" => UpdateModeExitState.Pending,
+                "attempted" or "completed" => UpdateModeExitState.SelfUpdateHandled,
+                "launch-disabled" => UpdateModeExitState.LaunchDisabled,
+                _ => UpdateModeExitState.None,
+            };
+        });
+
+    public static void MarkLaunchDisabled(string policyId, string cycleId, ILogger logger) =>
+        Change(policyId, cycleId, logger, entry =>
+        {
+            if (entry.State == "pending")
+                entry.State = "launch-disabled";
+            return false;
+        });
+
+    public static bool Attempt(string policyId, string cycleId, string reason, ILogger logger) =>
+        Change(policyId, cycleId, logger, entry =>
+        {
+            if (entry.State != "pending") return false;
+            entry.State = "attempted";
+            entry.Outcome = reason;
+            return true;
+        });
+
+    public static void Complete(string policyId, string cycleId, string reason, ILogger logger) =>
+        Change(policyId, cycleId, logger, entry =>
+        {
+            if (entry.State is "pending" or "active")
+            {
+                entry.State = "completed";
+                entry.Outcome = reason;
+            }
+            return false;
+        });
+
+    public static void CleanReceivedPolicies(IEnumerable<string> receivedPolicyIds, ILogger logger)
+    {
+        var received = new HashSet<string>(receivedPolicyIds, StringComparer.OrdinalIgnoreCase);
+        lock (Gate)
+        {
+            var ledger = Load(logger);
+            if (ledger is null) return;
+            if (ledger.Entries.RemoveAll(entry => !received.Contains(entry.PolicyId)) > 0)
+                Save(ledger, logger);
+        }
+    }
+
+    private static T Change<T>(string policyId, string cycleId, ILogger logger, Func<LedgerEntry, T> change, T failure = default!)
+    {
+        lock (Gate)
+        {
+            var ledger = Load(logger);
+            if (ledger is null) return failure;
+            var entry = ledger.Entries.FirstOrDefault(item =>
+                item.PolicyId.Equals(policyId, StringComparison.OrdinalIgnoreCase) &&
+                item.CycleId.Equals(cycleId, StringComparison.Ordinal));
+            if (entry is null)
+            {
+                entry = new LedgerEntry { PolicyId = policyId, CycleId = cycleId, State = "unobserved" };
+                ledger.Entries.Add(entry);
+            }
+            var result = change(entry);
+            // An attempt becomes eligible only after this replacement has
+            // completed. A persistence failure therefore fails closed before
+            // CreateProcessAsUser can be reached.
+            if (!Save(ledger, logger)) return failure;
+            return result;
+        }
+    }
+
+    private static LedgerFile? Load(ILogger logger)
+    {
+        try
+        {
+            if (!File.Exists(FilePath)) return new LedgerFile();
+            var ledger = JsonSerializer.Deserialize<LedgerFile>(File.ReadAllText(FilePath), JsonOptions.Default);
+            if (ledger?.Entries is null ||
+                ledger.Entries.Any(entry =>
+                    string.IsNullOrWhiteSpace(entry.PolicyId) ||
+                    string.IsNullOrWhiteSpace(entry.CycleId) ||
+                    entry.State is not ("unobserved" or "active" or "pending" or "attempted" or "completed" or "launch-disabled")))
+                throw new InvalidDataException("The update-mode launch ledger is invalid.");
+            return ledger;
+        }
+        catch (Exception exception)
+        {
+            // Failing closed is essential: treating unreadable/corrupt history
+            // as empty could convert an old cycle into a duplicate launch.
+            logger.LogError(exception, "Unable to read update-mode launch ledger; update-mode exit launches are suppressed");
+            return null;
+        }
+    }
+
+    private static bool Save(LedgerFile ledger, ILogger logger)
+    {
+        string? temporary = null;
+        try
+        {
+            Directory.CreateDirectory(DirectoryPath);
+            temporary = $"{FilePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(ledger, JsonOptions.Default));
+            File.Move(temporary, FilePath, overwrite: true);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Unable to persist update-mode launch ledger");
+            return false;
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(temporary))
+            {
+                try { if (File.Exists(temporary)) File.Delete(temporary); }
+                catch { /* A leftover temp file cannot authorize a launch. */ }
+            }
+        }
+    }
+
+    private sealed class LedgerFile { public List<LedgerEntry> Entries { get; set; } = new(); }
+    private sealed class LedgerEntry
+    {
+        public string PolicyId { get; set; } = "";
+        public string CycleId { get; set; } = "";
+        public string State { get; set; } = "";
+        public string? Outcome { get; set; }
+    }
 }
 
 internal static class PipeJsonProtocol
@@ -978,6 +1326,63 @@ internal static class SessionCompanionLauncher
             catch { return false; }
             finally { process.Dispose(); }
         });
+    }
+
+    public static bool IsExecutableRunningInSession(string executable, int sessionId)
+    {
+        var fullPath = Path.GetFullPath(executable);
+        return Process.GetProcesses().Any(process =>
+        {
+            try
+            {
+                return process.SessionId == sessionId &&
+                    string.Equals(Path.GetFullPath(process.MainModule?.FileName ?? ""), fullPath,
+                        StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
+            finally { process.Dispose(); }
+        });
+    }
+
+    public static bool LaunchExecutable(int sessionId, string executable, string? arguments, ILogger logger)
+    {
+        if (!Path.IsPathFullyQualified(executable) || !File.Exists(executable))
+            return false;
+        if (!WTSQueryUserToken((uint)sessionId, out var userToken))
+        {
+            logger.LogWarning("Unable to obtain active session user token for update-mode exit launch ({Error})", Marshal.GetLastWin32Error());
+            return false;
+        }
+        IntPtr primaryToken = IntPtr.Zero, environment = IntPtr.Zero;
+        try
+        {
+            if (!DuplicateTokenEx(userToken, TokenAllAccess, IntPtr.Zero, 2, 1, out primaryToken))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            if (!CreateEnvironmentBlock(out environment, primaryToken, false))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            var startup = new StartupInfo { cb = Marshal.SizeOf<StartupInfo>(), lpDesktop = @"winsta0\default" };
+            // applicationName is the configured full path; arguments are passed
+            // directly, never interpreted by cmd.exe.
+            var commandLine = new StringBuilder($"\"{executable}\"");
+            if (!string.IsNullOrWhiteSpace(arguments)) commandLine.Append(' ').Append(arguments);
+            if (!CreateProcessAsUser(primaryToken, executable, commandLine, IntPtr.Zero, IntPtr.Zero, false,
+                    CreateUnicodeEnvironment, environment, Path.GetDirectoryName(executable), ref startup, out var process))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Unable to launch configured update-mode exit executable in session {SessionId}", sessionId);
+            return false;
+        }
+        finally
+        {
+            if (environment != IntPtr.Zero) DestroyEnvironmentBlock(environment);
+            if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+            CloseHandle(userToken);
+        }
     }
 
     public static bool Launch(int sessionId, ILogger logger)
@@ -1172,8 +1577,6 @@ internal sealed record SyncConfig(
     int SyncIntervalSeconds,
     string ConfigVersion,
     bool UpdateMode,
-    int NormalCloseTimeoutSeconds,
-    int CloseOnStartTimeoutSeconds,
     List<SoftwarePolicy> Policies);
 internal sealed record SoftwarePolicy(
     string Id,
@@ -1183,9 +1586,15 @@ internal sealed record SoftwarePolicy(
     List<string> SupervisedExecutables,
     List<ExeCheck> ExeChecks,
     List<IniCheck> IniChecks,
-    bool UpdateMode,
-    int UpdateModeCloseTimeoutSeconds,
-    bool AllowPostpone);
+    bool UpdateMode = false,
+    int NormalCloseTimeoutSeconds = 30,
+    int UpdateModeCloseTimeoutSeconds = 8,
+    bool LaunchOnExitUpdateMode = false,
+    string? LaunchExecutablePath = null,
+    string? LaunchArguments = null,
+    string? UpdateModeCycleId = null,
+    bool AllowPostpone = false,
+    bool Enabled = true);
 internal sealed record ExeCheck(string Executable, string TargetVersion, string? InstallCommand);
 internal sealed record IniCheck(string FilePath, string Section, string Key, string ExpectedValue);
 internal sealed record ApplicationResult(

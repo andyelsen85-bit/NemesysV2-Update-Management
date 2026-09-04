@@ -63,6 +63,13 @@ manual schema command is required. The database user in `DATABASE_URL` must
 have permission to create tables and alter tables.
 
 Fresh installations start without demo clients or sample application policies.
+Before deploying the NemesysV2 policy-contract release to an existing
+installation, run `migrations/005-nemesys-v2-policy-contract.sql` once. It
+preserves existing policy grace values as normal close timeouts, adds the
+per-policy launch and update-cycle fields, and removes retired global
+server-setting fields. Take the normal database backup first and use the
+cluster's secret-managed connection; do not apply migrations from the
+application deployment.
 For an existing installation that was initialized with the old demo data, run
 `migrations/004-remove-demo-data.sql` once. It removes the two known seeded audit
 rows and removes client/application rows only when their original seeded

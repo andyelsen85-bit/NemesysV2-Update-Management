@@ -8,25 +8,9 @@
 
 export interface ServerSettingsInput {
   /**
-     * @minimum 10
-     * @maximum 86400
-     */
-  syncIntervalSeconds: number;
-  /**
      * @minimum 1
      * @maximum 65535
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
-  updateMode: boolean;
-  /**
-     * @minimum 5
-     * @maximum 3600
-     */
-  normalCloseTimeoutSeconds: number;
-  /**
-     * @minimum 1
-     * @maximum 300
-     */
-  updateModeCloseTimeoutSeconds: number;
 }

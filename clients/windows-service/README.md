@@ -46,7 +46,7 @@ The installer:
 
 The service enrolls by hostname (the reported address is the best available local
 IPv4 address), refreshes the authenticated sync endpoint, and scans the configured
-policies and running processes at least every 30 seconds. It evaluates EXE file
+policies and running processes on its jittered polling cadence. It evaluates EXE file
 versions and INI section/key/value checks and sends labelled audit summaries for
 every configured check. Missing files, unavailable EXE versions, missing INI
 values, and unconfigured expected values are explicitly reported. If the config
@@ -56,6 +56,11 @@ bounded timeout, and each scan delay is measured from the previous scan start so
 network time does not extend the cadence. Audit reports are anti-flooded: they
 are sent on a configuration or compliance-state change, and the reported state
 is recorded only after a successful POST.
+
+Polling is randomly jittered around five minutes under normal operation and
+around 30 seconds while at least one enabled received policy is in Update Mode.
+The effective interval fields retained in the sync payload are accepted for
+compatibility but do not override that client behavior.
 
 When a policy is noncompliant, the service first checks whether any configured
 supervised, legacy, or version-check executable is currently running. If none is
@@ -95,6 +100,51 @@ unknown process state, and close failures use one minute. Cooldowns are cleared
 when the policy becomes compliant or its configuration changes. If process
 enumeration is unknown, the service fails safe and does not warn, close, or
 install.
+
+Each policy supplies its own `normalCloseTimeoutSeconds` (default 30 seconds)
+and `updateModeCloseTimeoutSeconds` (default 8 seconds); warnings use the
+appropriate timeout directly rather than a global close-timeout setting.
+
+Policies can optionally set `launchOnExitUpdateMode`, a full
+`launchExecutablePath`, optional `launchArguments`, and an
+`updateModeCycleId`. The service launches only after it has itself observed the
+same enabled policy/cycle move from Update Mode to normal mode. It does not
+launch for an initial normal-mode policy, after a service restart with no
+recorded active cycle, or for disabled/deleted/compliant policies. Before a
+launch it rechecks compliance and checks the selected active user session
+(console session preferred, otherwise lowest active session) for that exact
+executable. No active session leaves the cycle pending. The full configured
+path and arguments are passed directly to `CreateProcessAsUser`, never through
+`cmd.exe`.
+
+While an eligible launch-on-exit cycle is pending, attempted, or completed,
+that cycle owns enforcement for the policy: the service does not also start
+the ordinary warning/close/silent-installer path. This avoids racing a
+self-update launch with another update action. An observed exit while
+launch-on-exit is disabled is instead permanently recorded as
+launch-disabled for that cycle, so ordinary enforcement continues and a later
+configuration edit cannot launch the old cycle. Attempted or completed
+self-update cycles never resume ordinary enforcement; a new server cycle ID
+is required.
+
+When a self-update cycle takes ownership, any already-running ordinary
+enforcement task for that policy is cancelled and invalidated before launch
+handling continues. State reconciliation also cancels/removes ordinary tasks
+for policies that are absent or disabled in a newly received configuration.
+Warnings are rechecked immediately before display; process kills and installer
+starts are serialized with cancellation under the policy enforcement lock.
+Thus cancellation wins before any new destructive action starts. An installer
+that was already started is allowed to finish and is never killed.
+
+Transition and launch outcomes are stored, without policy arguments or
+credentials, in `C:\ProgramData\NemesysV2\update-mode-launch-ledger.json`.
+The ledger is atomically replaced under a process-wide lock and marks an
+attempt before process creation, ensuring at most one launch attempt per
+policy/cycle across service restarts. Missing executables and failed process
+creation consume that one attempt; already-running and compliant cycles are
+recorded as completed. If the ledger cannot be read, validates as corrupt, or
+cannot be atomically persisted, launch-on-exit fails closed and no launch is
+authorized.
 
 ## Runtime logs
 

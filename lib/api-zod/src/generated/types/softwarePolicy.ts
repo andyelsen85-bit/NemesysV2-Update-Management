@@ -21,16 +21,24 @@ export interface SoftwarePolicy {
   exeChecks: ExeCheck[];
   iniChecks: IniCheck[];
   iniRules: IniRule[];
-  /** @minimum 0 */
-  graceSeconds: number;
-  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  updateMode: boolean;
   /**
      * @minimum 1
      * @maximum 300
      */
-  updateModeCloseTimeoutSeconds?: number;
+  updateModeCloseTimeoutSeconds: number;
   /** Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization. */
   allowPostpone: boolean;
+  launchOnExitUpdateMode: boolean;
+  launchExecutablePath: string;
+  launchArguments: string;
+  /** Server-generated identifier for the current Update Mode cycle. */
+  updateModeCycleId: string;
   enabled: boolean;
   lastUpdated: Date;
 }

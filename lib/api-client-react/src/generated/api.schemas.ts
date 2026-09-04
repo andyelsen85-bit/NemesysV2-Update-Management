@@ -113,16 +113,24 @@ export interface SoftwarePolicy {
   exeChecks: ExeCheck[];
   iniChecks: IniCheck[];
   iniRules: IniRule[];
-  /** @minimum 0 */
-  graceSeconds: number;
-  updateMode?: boolean;
+  /**
+     * @minimum 1
+     * @maximum 3600
+     */
+  normalCloseTimeoutSeconds: number;
+  updateMode: boolean;
   /**
      * @minimum 1
      * @maximum 300
      */
-  updateModeCloseTimeoutSeconds?: number;
+  updateModeCloseTimeoutSeconds: number;
   /** Whether the Windows close-warning dialog lets the user postpone this application update until the next client synchronization. */
   allowPostpone: boolean;
+  launchOnExitUpdateMode: boolean;
+  launchExecutablePath: string;
+  launchArguments: string;
+  /** Server-generated identifier for the current Update Mode cycle. */
+  updateModeCycleId: string;
   enabled: boolean;
   lastUpdated: string;
 }
@@ -148,10 +156,10 @@ export interface SoftwarePolicyInput {
   iniChecks?: IniCheck[];
   iniRules?: IniRule[];
   /**
-     * @minimum 0
+     * @minimum 1
      * @maximum 3600
      */
-  graceSeconds: number;
+  normalCloseTimeoutSeconds: number;
   updateMode?: boolean;
   /**
      * @minimum 1
@@ -160,6 +168,9 @@ export interface SoftwarePolicyInput {
   updateModeCloseTimeoutSeconds?: number;
   /** Show a Postpone action in the Windows close-warning dialog for this application. */
   allowPostpone?: boolean;
+  launchOnExitUpdateMode?: boolean;
+  launchExecutablePath?: string;
+  launchArguments?: string;
   enabled: boolean;
 }
 
@@ -191,11 +202,6 @@ export interface AuditEntry {
 
 export interface ServerSettings {
   /**
-     * @minimum 10
-     * @maximum 86400
-     */
-  syncIntervalSeconds: number;
-  /**
      * @minimum 1
      * @maximum 65535
      */
@@ -204,42 +210,15 @@ export interface ServerSettings {
   apiKeyConfigured: boolean;
   /** @nullable */
   apiKeyLastRotatedAt: string | null;
-  updateMode: boolean;
-  /**
-     * @minimum 5
-     * @maximum 3600
-     */
-  normalCloseTimeoutSeconds: number;
-  /**
-     * @minimum 1
-     * @maximum 300
-     */
-  updateModeCloseTimeoutSeconds: number;
 }
 
 export interface ServerSettingsInput {
-  /**
-     * @minimum 10
-     * @maximum 86400
-     */
-  syncIntervalSeconds: number;
   /**
      * @minimum 1
      * @maximum 65535
      */
   syncPort: number;
   adminHttpsEnabled: boolean;
-  updateMode: boolean;
-  /**
-     * @minimum 5
-     * @maximum 3600
-     */
-  normalCloseTimeoutSeconds: number;
-  /**
-     * @minimum 1
-     * @maximum 300
-     */
-  updateModeCloseTimeoutSeconds: number;
 }
 
 export interface ApiKeyRotation {
@@ -375,16 +354,6 @@ export interface SyncConfig {
   syncIntervalSeconds: number;
   configVersion: string;
   updateMode: boolean;
-  /**
-     * @minimum 5
-     * @maximum 3600
-     */
-  normalCloseTimeoutSeconds: number;
-  /**
-     * @minimum 1
-     * @maximum 3600
-     */
-  closeOnStartTimeoutSeconds: number;
   policies: SoftwarePolicy[];
 }
 
