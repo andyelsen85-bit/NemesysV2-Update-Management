@@ -41,6 +41,13 @@ spec:
           volumeMounts:
             - name: certs
               mountPath: /var/lib/nemesys/tls
+          startupProbe:
+            httpGet:
+              path: /api/healthz
+              port: api-http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 180
           readinessProbe:
             httpGet:
               path: /api/healthz

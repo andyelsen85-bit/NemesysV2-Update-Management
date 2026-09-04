@@ -55,21 +55,23 @@ docker tag postgres:16-alpine nexus.example.com:8083/postgres:16-alpine
 docker push nexus.example.com:8083/postgres:16-alpine
 ```
 
-The API automatically provisions the Nemesys schema during startup using
-idempotent, additive DDL. It creates missing tables and adds missing client
-poll-timestamp and policy-postpone columns before default settings are
-initialized. No
-manual schema command is required. The database user in `DATABASE_URL` must
-have permission to create tables and alter tables.
+The API automatically provisions and upgrades the Nemesys schema before it
+starts listening. Startup DDL runs in one transaction under a PostgreSQL
+advisory lock, so concurrent replacement Pods cannot race each other. It
+creates missing tables, preserves legacy policy grace values as normal close
+timeouts, adds the per-policy launch/update-cycle fields, and removes retired
+global settings. No manual schema command is required. The database user in
+`DATABASE_URL` must own the existing Nemesys tables so it can rename, alter,
+and drop columns; it also needs `CREATE` on the `public` schema for fresh
+installations and normal read/write permissions for data normalization. The API
+startup probe allows up to 15 minutes for migration and database-lock waits
+before Kubernetes enables liveness checks.
 
 Fresh installations start without demo clients or sample application policies.
-Before deploying the NemesysV2 policy-contract release to an existing
-installation, run `migrations/005-nemesys-v2-policy-contract.sql` once. It
-preserves existing policy grace values as normal close timeouts, adds the
-per-policy launch and update-cycle fields, and removes retired global
-server-setting fields. Take the normal database backup first and use the
-cluster's secret-managed connection; do not apply migrations from the
-application deployment.
+`migrations/005-nemesys-v2-policy-contract.sql` remains available as an
+auditable recovery script, but the same idempotent policy-contract upgrade is
+now applied automatically by API startup. Continue taking the normal database
+backup before deploying releases that change the schema.
 For an existing installation that was initialized with the old demo data, run
 `migrations/004-remove-demo-data.sql` once. It removes the two known seeded audit
 rows and removes client/application rows only when their original seeded

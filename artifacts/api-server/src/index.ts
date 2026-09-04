@@ -38,7 +38,10 @@ try {
       "PostgreSQL is reachable but automatic Nemesys schema initialization failed. Check database permissions and connectivity.",
     );
   } else {
-    logger.fatal({ err: error }, "Unable to initialize Nemesys seed data");
+    logger.fatal(
+      { err: error },
+      "Unable to initialize the Nemesys database schema and seed data",
+    );
   }
   process.exit(1);
 }
