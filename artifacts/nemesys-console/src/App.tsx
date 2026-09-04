@@ -258,7 +258,7 @@ function OverviewPage() {
   const anyLoading = dashboard.isLoading || clientsQuery.isLoading || softwareQuery.isLoading || auditQuery.isLoading;
   const retry = () => { dashboard.refetch(); clientsQuery.refetch(); softwareQuery.refetch(); auditQuery.refetch(); };
   return <div className="mx-auto max-w-[1380px]">
-    <PageHeader eyebrow="Operational overview" title="Good morning, Alex." detail="A precise read on the Windows estate, policy drift, and what needs your attention next." action={<Button variant="secondary" onClick={retry} disabled={anyLoading} data-testid="button-refresh-overview"><RefreshCw size={14} className={anyLoading ? 'animate-spin' : ''} /> Refresh data</Button>} />
+    <PageHeader eyebrow="Operational overview" title="System overview" detail="A precise read on the Windows estate, policy drift, and what needs your attention next." action={<Button variant="secondary" onClick={retry} disabled={anyLoading} data-testid="button-refresh-overview"><RefreshCw size={14} className={anyLoading ? 'animate-spin' : ''} /> Refresh data</Button>} />
     {dashboard.isError ? <ErrorState onRetry={retry} /> : anyLoading && !summary ? <LoadingRows count={5} /> : <>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Enrolled clients" value={summary?.totalClients ?? '—'} detail={`${summary?.onlineClients ?? 0} online right now`} icon={Laptop} tone="green" trend="up" />
