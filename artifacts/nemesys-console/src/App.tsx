@@ -23,9 +23,11 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Link, Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
+import consolePackage from '../package.json';
 import './index.css';
 
 const queryClient = new QueryClient();
+const APP_VERSION = consolePackage.version;
 
 const navItems = [
   { href: '/', label: 'Overview', icon: Gauge },
@@ -159,7 +161,7 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
       setBusy(false);
     }
   };
-  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]"><div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]"><div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Control center</div></div></div><div className="mt-8"><div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />Administrator access</div><h1 className="text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Sign in to control center</h1><p className="mt-2 text-sm leading-6 text-[#71817c]">Manage Windows clients, application policies, and the shared sync channel.</p></div><form onSubmit={submit} className="mt-7 space-y-4"><label className="block"><span className="field-label">Username</span><input autoFocus autoComplete="username" required data-testid="input-login-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">Password</span><input required autoComplete="current-password" type="password" data-testid="input-login-password" value={password} onChange={(event) => setPassword(event.target.value)} className="field-input" /></label>{feedback && <div role="alert" data-testid="text-login-error" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<Button type="submit" disabled={busy} className="mt-2 w-full">{busy ? 'Signing in…' : 'Sign in'}</Button></form></div></div>;
+  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]"><div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]"><div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Control center · v{APP_VERSION}</div></div></div><div className="mt-8"><div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />Administrator access</div><h1 className="text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Sign in to control center</h1><p className="mt-2 text-sm leading-6 text-[#71817c]">Manage Windows clients, application policies, and the shared sync channel.</p></div><form onSubmit={submit} className="mt-7 space-y-4"><label className="block"><span className="field-label">Username</span><input autoFocus autoComplete="username" required data-testid="input-login-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">Password</span><input required autoComplete="current-password" type="password" data-testid="input-login-password" value={password} onChange={(event) => setPassword(event.target.value)} className="field-input" /></label>{feedback && <div role="alert" data-testid="text-login-error" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<Button type="submit" disabled={busy} className="mt-2 w-full">{busy ? 'Signing in…' : 'Sign in'}</Button></form></div></div>;
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
@@ -207,7 +209,7 @@ function Layout({ children }: { children: ReactNode }) {
     <aside className={cx('fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-[#263c4a] bg-[#172d3b] px-4 py-5 text-[#dce8e4] transition-transform duration-300 lg:translate-x-0', mobileOpen ? 'translate-x-0' : '-translate-x-full')}>
       <div className="flex items-center gap-3 px-2">
         <IconMark />
-        <div><div className="text-sm font-extrabold tracking-tight text-[#f1f3e8]">NEMESYS<span className="text-[#91dcb5]">V2</span></div><div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[#7d9699]">Control center</div></div>
+        <div><div className="text-sm font-extrabold tracking-tight text-[#f1f3e8]">NEMESYS<span className="text-[#91dcb5]">V2</span></div><div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[#7d9699]">Control center · v{APP_VERSION}</div></div>
         <button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1 text-[#90a5a8] hover:bg-[#213e4d] lg:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button>
       </div>
       <div className="mt-10 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#6c878d]">Operations</div>
