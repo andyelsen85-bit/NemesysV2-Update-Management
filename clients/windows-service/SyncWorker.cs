@@ -1552,7 +1552,7 @@ internal sealed class SessionCompanion
                 try
                 {
                     form.BeginInvoke(new Action(
-                        () => PromoteToForeground(form, requestFocus: true)));
+                        () => PromoteToForeground(form, requestFocus: false)));
                 }
                 catch (InvalidOperationException)
                 {
@@ -1610,8 +1610,9 @@ internal sealed class SessionCompanion
         if (form.IsDisposed || !form.IsHandleCreated) return;
 
         // Service-launched session helpers hit the foreground lock, and HWND_TOPMOST
-        // windows still compete within their own z-order; attach input and re-promote
-        // on foreground events. Exclusive-fullscreen applications remain OS-controlled.
+        // windows still compete within their own z-order. Request focus only when the
+        // dialog is first shown; later promotions must preserve the user's active app.
+        // Exclusive-fullscreen applications remain OS-controlled.
         form.WindowState = FormWindowState.Normal;
         form.TopMost = true;
         SetWindowPos(
