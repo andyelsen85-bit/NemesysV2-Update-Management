@@ -1530,8 +1530,62 @@ internal sealed class SessionCompanion
                 countdown.Text = $"Closing in {TimeSpan.FromSeconds(Math.Max(0, remaining)):mm\\:ss}";
                 if (remaining <= 0) { timer.Stop(); form.Close(); }
             };
-            timer.Start();
-            Application.Run(form);
+
+            var previousForegroundLockTimeout = 0U;
+            var foregroundLockTimeoutChanged =
+                SystemParametersInfo(
+                    SpiGetForegroundLockTimeout,
+                    0,
+                    ref previousForegroundLockTimeout,
+                    0)
+                && SetForegroundLockTimeout(0);
+            WinEventDelegate foregroundChanged = (_, eventType, windowHandle, _, _, _, _) =>
+            {
+                if (eventType != EventSystemForeground
+                    || windowHandle == IntPtr.Zero
+                    || form.IsDisposed
+                    || windowHandle == form.Handle)
+                {
+                    return;
+                }
+
+                try
+                {
+                    form.BeginInvoke(new Action(
+                        () => PromoteToForeground(form, requestFocus: true)));
+                }
+                catch (InvalidOperationException)
+                {
+                    // The form closed while a foreground event was being delivered.
+                }
+            };
+            var foregroundHook = SetWinEventHook(
+                EventSystemForeground,
+                EventSystemForeground,
+                IntPtr.Zero,
+                foregroundChanged,
+                0,
+                0,
+                WinEventOutOfContext | WinEventSkipOwnProcess);
+
+            try
+            {
+                timer.Start();
+                Application.Run(form);
+            }
+            finally
+            {
+                timer.Stop();
+                if (foregroundHook != IntPtr.Zero)
+                {
+                    UnhookWinEvent(foregroundHook);
+                }
+                if (foregroundLockTimeoutChanged)
+                {
+                    SetForegroundLockTimeout(previousForegroundLockTimeout);
+                }
+                GC.KeepAlive(foregroundChanged);
+            }
             await PipeJsonProtocol.WriteAsync(pipe, new WarningResponse(postponed), CancellationToken.None);
         }
         catch (Exception exception) when (exception is OperationCanceledException or TimeoutException or IOException or JsonException or ObjectDisposedException)
@@ -1545,11 +1599,19 @@ internal sealed class SessionCompanion
     private const uint SetWindowPosNoSize = 0x0001;
     private const uint SetWindowPosNoMove = 0x0002;
     private const uint SetWindowPosShowWindow = 0x0040;
+    private const uint SpiGetForegroundLockTimeout = 0x2000;
+    private const uint SpiSetForegroundLockTimeout = 0x2001;
+    private const uint EventSystemForeground = 0x0003;
+    private const uint WinEventOutOfContext = 0x0000;
+    private const uint WinEventSkipOwnProcess = 0x0002;
 
     private static void PromoteToForeground(Form form, bool requestFocus)
     {
         if (form.IsDisposed || !form.IsHandleCreated) return;
 
+        // Service-launched session helpers hit the foreground lock, and HWND_TOPMOST
+        // windows still compete within their own z-order; attach input and re-promote
+        // on foreground events. Exclusive-fullscreen applications remain OS-controlled.
         form.WindowState = FormWindowState.Normal;
         form.TopMost = true;
         SetWindowPos(
@@ -1559,14 +1621,87 @@ internal sealed class SessionCompanion
             SetWindowPosNoMove | SetWindowPosNoSize | SetWindowPosShowWindow);
         if (requestFocus)
         {
-            form.BringToFront();
-            form.Activate();
-            SetForegroundWindow(form.Handle);
+            var currentThreadId = GetCurrentThreadId();
+            var foregroundWindow = GetForegroundWindow();
+            var foregroundThreadId = foregroundWindow == IntPtr.Zero
+                ? 0
+                : GetWindowThreadProcessId(foregroundWindow, out _);
+            var inputAttached = foregroundThreadId != 0
+                && foregroundThreadId != currentThreadId
+                && AttachThreadInput(currentThreadId, foregroundThreadId, true);
+            try
+            {
+                form.BringToFront();
+                form.Activate();
+                SetForegroundWindow(form.Handle);
+            }
+            finally
+            {
+                if (inputAttached)
+                {
+                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                }
+            }
         }
     }
 
+    private static bool SetForegroundLockTimeout(uint timeout)
+    {
+        return SystemParametersInfo(
+            SpiSetForegroundLockTimeout,
+            0,
+            ref timeout,
+            0);
+    }
+
+    private delegate void WinEventDelegate(
+        IntPtr hook,
+        uint eventType,
+        IntPtr windowHandle,
+        int objectId,
+        int childId,
+        uint eventThread,
+        uint eventTime);
+
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr windowHandle);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(
+        IntPtr windowHandle,
+        out uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool AttachThreadInput(
+        uint threadIdAttach,
+        uint threadIdAttachTo,
+        bool attach);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SystemParametersInfo(
+        uint action,
+        uint parameter,
+        ref uint value,
+        uint updateFlags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        IntPtr eventHookModule,
+        WinEventDelegate callback,
+        uint processId,
+        uint threadId,
+        uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWinEvent(IntPtr hook);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(
