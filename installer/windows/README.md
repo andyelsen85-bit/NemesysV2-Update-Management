@@ -30,6 +30,10 @@ For an unattended deployment, pass MSI properties:
 msiexec /i NemesysV2.Client.msi /qn NEMESYS_SERVER="https://updates.example.local" NEMESYS_API_KEY="..." /l*v nemesys-msi.log
 ```
 
+`NEMESYS_SERVER` must be an absolute HTTPS URL whose certificate is valid for
+the hostname and chains to a root trusted by the Windows Local Computer
+account.
+
 The API key is intentionally accepted only through an explicit install
 property and is marked hidden in the MSI authoring. Do not store it in source
 control or deployment manifests. Existing EXE silent installation remains

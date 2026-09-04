@@ -20,3 +20,9 @@ Kubernetes deployments follow the Change Manager pattern: the web Service expose
 **Why:** This environment exposes application Services directly rather than using Kubernetes Ingress. The console must remain reachable on 443 while Nginx proxies API traffic to the HTTP API sidecar.
 
 **How to apply:** Keep ports 80/443 on the web Service, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.
+
+Windows clients require an absolute HTTPS control-plane endpoint and use the Local Computer certificate trust store. Expired, untrusted, and hostname-mismatched certificates are rejected.
+
+**Why:** Client synchronization and future LocalSystem OTA downloads require authenticated transport; bypassing TLS validation exposes the shared API key and policy channel.
+
+**How to apply:** Use a publicly trusted certificate or install the private CA in every managed machine's Local Computer trusted roots. OTA artifacts must still use signed manifests, SHA-256 verification, and Authenticode validation.

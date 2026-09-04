@@ -14,6 +14,7 @@ The source implementation is in `clients/windows-service`. Publish it on a Windo
 - Identify the machine using its Windows hostname/computer name.
 - Store the API key using Windows-protected storage (DPAPI), never as a reusable plaintext value.
 - Keep the server hostname/endpoint in the client configuration file as plain text so the service can resolve the control plane.
+- Require an absolute HTTPS endpoint and validate its certificate with the Windows Local Computer trust store, including chain, validity, and hostname checks.
 - Treat the API key as sensitive delivery material. Authenticated administrators can intentionally read back the configured key from the Client API Key page because the server stores an encrypted recovery copy; the server still uses a SHA-256 hash for client authentication.
 - Write the initial sync interval and endpoint, then refresh the effective sync configuration at runtime without restarting the service.
 - Enroll or refresh the hostname registration before requesting policies.

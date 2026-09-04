@@ -86,10 +86,10 @@ internal sealed class ClientConfiguration
         get
         {
             if (!Uri.TryCreate(Server, UriKind.Absolute, out var baseUri) ||
-                (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
+                baseUri.Scheme != Uri.UriSchemeHttps)
             {
                 throw new InvalidOperationException(
-                    "The configured server must be an absolute URL beginning with http:// or https://.");
+                    "The configured server must be an absolute HTTPS URL beginning with https://.");
             }
 
             var uri = new UriBuilder(baseUri)
@@ -142,6 +142,7 @@ internal sealed class ClientConfiguration
             EncryptedApiKey = DpapiSecretStore.Protect(apiKey),
             Hostname = Environment.MachineName,
         };
+        _ = configuration.ApiBase;
         Save(configuration);
         // Older builds used a LocalSystem ONLOGON task for the interactive
         // companion. Services cannot display on the user's desktop, and a task

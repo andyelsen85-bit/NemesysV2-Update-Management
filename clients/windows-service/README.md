@@ -12,9 +12,9 @@ Run the installer elevated:
 NemesysV2.Client.exe /quiet /server "https://nemesys.example.com" /apiKey "<one-time-key>"
 ```
 
-`/server` must include the `http://` or `https://` scheme. The client appends
-`/api` and defaults to standard HTTPS port `443`. `/port` remains available
-only as an optional compatibility override.
+`/server` must be an absolute `https://` URL. The client appends `/api` and
+defaults to standard HTTPS port `443`. `/port` remains available only as an
+optional compatibility override.
 
 The saved `client.json` contains only the machine-DPAPI-encrypted API key.
 Computed clear-text values are excluded from serialization. Loading a
@@ -31,10 +31,10 @@ This stops and deletes the `NemesysV2Client` service, removes the obsolete
 user-session scheduled task if present, and deletes
 `C:\ProgramData\NemesysV2`.
 
-The Windows service intentionally does not validate the server certificate.
-This allows synchronization with self-signed, private-CA, expired, or
-hostname-mismatched certificates. Protect the connection with a trusted
-network path and keep the API key confidential.
+The Windows service uses normal Windows HTTPS certificate validation. The
+certificate must be current, match the configured server hostname, and chain
+to a root certificate trusted by the Local Computer account. Private-CA
+certificates work only when that CA is installed in the machine trust store.
 
 The installer:
 

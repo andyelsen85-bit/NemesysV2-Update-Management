@@ -249,12 +249,13 @@ The OpenAPI contract is maintained in [`lib/api-spec/openapi.yaml`](lib/api-spec
 - Client requests use a shared API key; the server stores a SHA-256 authentication hash and an encrypted recovery copy.
 - Client identity is the Windows hostname. Reported IP addresses are informational.
 - The client stores only the machine-DPAPI-encrypted API key in `client.json`.
+- Windows clients require HTTPS and validate the server certificate with the Local Computer trust store, including hostname and validity checks.
 - LDAP bind credentials and TLS private keys are encrypted at rest using a key derived from `SESSION_SECRET`.
 - Warning responses are accepted only from the authenticated installed companion process in the selected user session.
 - Destructive enforcement fails safely when state cannot be verified.
 
-> [!WARNING]
-> The Windows client intentionally accepts self-signed, private-CA, expired, and hostname-mismatched server certificates. Deploy it only on a trusted network path and protect the shared client API key carefully.
+> [!IMPORTANT]
+> Private-CA certificates require the issuing CA to be installed in each Windows machine's trusted root store. Expired, untrusted, and hostname-mismatched certificates are rejected.
 
 ## Container images
 
