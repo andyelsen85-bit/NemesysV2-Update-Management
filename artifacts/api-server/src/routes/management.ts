@@ -23,6 +23,8 @@ import {
   ListAuditEntriesResponse,
   ListClientsResponse,
   ListSoftwareResponse,
+  ReactivateClientParams,
+  ReactivateClientResponse,
   RevokeClientParams,
   RevokeClientResponse,
   RotateClientApiKeyResponse,
@@ -178,6 +180,25 @@ router.post("/clients/:id/revoke", requireAdmin, async (req, res): Promise<void>
     return;
   }
   res.json(RevokeClientResponse.parse(client));
+});
+
+router.post("/clients/:id/reactivate", requireAdmin, async (req, res): Promise<void> => {
+  const params = ReactivateClientParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [client] = await db
+    .update(clientsTable)
+    .set({ status: "stale", certificateStatus: "valid" })
+    .where(eq(clientsTable.id, params.data.id))
+    .returning();
+  if (!client) {
+    res.status(404).json({ error: "Client not found" });
+    return;
+  }
+  res.json(ReactivateClientResponse.parse(client));
 });
 
 function matchesEtag(header: string | undefined, etag: string): boolean {

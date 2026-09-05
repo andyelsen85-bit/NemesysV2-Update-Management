@@ -49,13 +49,35 @@ export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
 /**
- * @summary Revoke a client certificate
+ * @summary Block a client from synchronization access
  */
 export const RevokeClientParams = zod.object({
   "id": zod.coerce.string()
 })
 
 export const RevokeClientResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "hostname": zod.string(),
+  "address": zod.string(),
+  "status": zod.enum(['online', 'stale', 'revoked']),
+  "lastSync": zod.coerce.date().nullable(),
+  "lastPoll": zod.coerce.date().nullable(),
+  "lastSuccessfulSync": zod.coerce.date().nullable(),
+  "syncVersion": zod.string(),
+  "installedVersion": zod.string().nullable().describe('Version reported by the installed NemesysV2 Windows client.'),
+  "certificateStatus": zod.enum(['valid', 'expiring', 'revoked'])
+})
+
+
+/**
+ * @summary Restore synchronization access for a blocked client
+ */
+export const ReactivateClientParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ReactivateClientResponse = zod.object({
   "id": zod.string(),
   "name": zod.string(),
   "hostname": zod.string(),

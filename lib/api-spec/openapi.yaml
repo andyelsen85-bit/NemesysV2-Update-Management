@@ -68,12 +68,28 @@ paths:
     post:
       operationId: revokeClient
       tags: [clients]
-      summary: Revoke a client certificate
+      summary: Block a client from synchronization access
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
         "200":
           description: Revoked client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+        "404":
+          description: Client not found
+  /clients/{id}/reactivate:
+    post:
+      operationId: reactivateClient
+      tags: [clients]
+      summary: Restore synchronization access for a blocked client
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: Reactivated client
           content:
             application/json:
               schema:

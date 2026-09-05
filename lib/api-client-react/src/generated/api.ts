@@ -318,7 +318,7 @@ export const getRevokeClientUrl = (id: string,) => {
 }
 
 /**
- * @summary Revoke a client certificate
+ * @summary Block a client from synchronization access
  */
 export const revokeClient = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Client> => {
 
@@ -367,7 +367,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type RevokeClientMutationError = ErrorType<void>
 
     /**
- * @summary Revoke a client certificate
+ * @summary Block a client from synchronization access
  */
 export const useRevokeClient = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeClient>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -378,6 +378,77 @@ export const useRevokeClient = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getRevokeClientMutationOptions(options));
+    }
+
+export const getReactivateClientUrl = (id: string,) => {
+
+
+
+
+  return `/api/clients/${id}/reactivate`
+}
+
+/**
+ * @summary Restore synchronization access for a blocked client
+ */
+export const reactivateClient = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<Client> => {
+
+  return customFetch<Client>(getReactivateClientUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getReactivateClientMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reactivateClient>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reactivateClient>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['reactivateClient'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reactivateClient>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  reactivateClient(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReactivateClientMutationResult = NonNullable<Awaited<ReturnType<typeof reactivateClient>>>
+
+    export type ReactivateClientMutationError = ErrorType<void>
+
+    /**
+ * @summary Restore synchronization access for a blocked client
+ */
+export const useReactivateClient = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reactivateClient>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reactivateClient>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getReactivateClientMutationOptions(options));
     }
 
 export const getGetClientSyncConfigUrl = (id: string,) => {
