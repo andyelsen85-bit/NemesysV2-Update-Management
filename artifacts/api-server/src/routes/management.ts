@@ -739,12 +739,68 @@ router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void>
       .returning({ id: clientsTable.id });
     if (!updatedClient) return null;
 
+    const [reportingClient] = await transaction.select({ hostname: clientsTable.hostname })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, parsed.data.clientId))
+      .limit(1);
+    const policies = await transaction.select()
+      .from(softwarePoliciesTable)
+      .where(eq(softwarePoliciesTable.enabled, true));
+    const targetRows = policies.length
+      ? await transaction.select().from(softwarePolicyTargetGroupsTable)
+        .where(inArray(softwarePolicyTargetGroupsTable.policyId, policies.map((policy) => policy.id)))
+      : [];
+    const targets = new Map<string, string[]>();
+    for (const row of targetRows) {
+      const ids = targets.get(row.policyId) ?? [];
+      ids.push(row.groupId);
+      targets.set(row.policyId, ids);
+    }
+    const hostname = (reportingClient?.hostname ?? parsed.data.clientName)
+      .trim().toLowerCase().replace(/\.$/, "").split(".")[0]!.replace(/\$$/, "");
+    const [computer] = await transaction.select().from(directoryComputersTable)
+      .where(eq(directoryComputersTable.hostname, hostname)).limit(1);
+    const memberships = computer?.enabled
+      ? new Set((await transaction.select().from(directoryComputerGroupsTable)
+        .where(eq(directoryComputerGroupsTable.computerId, computer.id))).map((row) => row.groupId))
+      : new Set<string>();
+    const activeGroups = new Set((await transaction.select({ id: directoryGroupsTable.id })
+      .from(directoryGroupsTable).where(eq(directoryGroupsTable.active, true))).map((row) => row.id));
+    const effectivePolicies = policies.filter((policy) => {
+      const ids = targets.get(policy.id) ?? [];
+      return ids.length === 0 || ids.some((id) => activeGroups.has(id) && memberships.has(id));
+    });
+    const submittedApplications = new Map<string, typeof parsed.data.applications[number]>();
+    for (const application of parsed.data.applications) {
+      const current = submittedApplications.get(application.softwareId);
+      if (!current || current.compliant && !application.compliant) {
+        submittedApplications.set(application.softwareId, application);
+      }
+    }
+    const applications = effectivePolicies.map((policy) => {
+      const submitted = submittedApplications.get(policy.id);
+      if (submitted) return { ...submitted, softwareName: policy.name };
+      const expectedVersion = policy.exeChecks.length
+        ? policy.exeChecks.map((check) => `${check.comparisonOperator ?? "="}${check.targetVersion}`).join(", ")
+        : policy.targetVersion;
+      return {
+        softwareId: policy.id,
+        softwareName: policy.name,
+        observedVersion: "not reported",
+        expectedVersion,
+        compliant: false,
+      };
+    });
+    const result = applications.every((application) => application.compliant) ? "success" : "warning";
+
     await transaction
       .delete(auditEntriesTable)
       .where(eq(auditEntriesTable.clientId, parsed.data.clientId));
     const [latestEntry] = await transaction.insert(auditEntriesTable).values({
       id: `audit-${crypto.randomUUID()}`,
       ...parsed.data,
+      result,
+      applications,
       timestamp: reportTimestamp,
     }).returning();
     return latestEntry;
