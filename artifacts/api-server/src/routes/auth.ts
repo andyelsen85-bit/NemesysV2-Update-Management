@@ -37,7 +37,7 @@ function createSession(username: string): string {
   return `${payload}.${signature}`;
 }
 
-function getSessionUsername(req: Request): string | null {
+export function getSessionUsername(req: Request): string | null {
   const value = req.cookies?.[SESSION_COOKIE];
   if (typeof value !== "string") return null;
   const parts = value.split(".");

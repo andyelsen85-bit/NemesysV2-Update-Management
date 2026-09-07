@@ -244,8 +244,8 @@ paths:
     get:
       operationId: getClientApiKey
       tags: [settings]
-      summary: Get the configured shared client API key
-      description: Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
+      summary: Get masked shared client API key status
+      description: Returns configuration and recovery status without exposing plaintext key material.
       responses:
         "200":
           description: Current client API key status
@@ -271,6 +271,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiKeyRotation"
+  /settings/api-key/reveal:
+    post:
+      operationId: revealClientApiKey
+      tags: [settings]
+      summary: Reveal and audit the configured shared client API key
+      responses:
+        "200":
+          description: Revealed client API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyReveal"
+        "409":
+          description: The configured key cannot be recovered
+  /settings/api-key/audit:
+    get:
+      operationId: listClientApiKeyRevealAudits
+      tags: [settings]
+      summary: List immutable client API key reveal audit entries
+      responses:
+        "200":
+          description: API key reveal audit entries, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ApiKeyRevealAudit"
   /settings/ldap:
     get:
       operationId: getLdapSettings
@@ -795,13 +823,25 @@ components:
           format: date-time
     ClientApiKeyStatus:
       type: object
-      required: [apiKey, maskedApiKey, configured, recoverable, rotatedAt]
+      required: [maskedApiKey, configured, recoverable, rotatedAt]
       properties:
-        apiKey: { type: ["string", "null"] }
         maskedApiKey: { type: ["string", "null"] }
         configured: { type: boolean }
         recoverable: { type: boolean }
         rotatedAt: { type: ["string", "null"], format: date-time }
+    ApiKeyReveal:
+      type: object
+      required: [apiKey, revealedAt]
+      properties:
+        apiKey: { type: string }
+        revealedAt: { type: string, format: date-time }
+    ApiKeyRevealAudit:
+      type: object
+      required: [id, username, timestamp]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        timestamp: { type: string, format: date-time }
     ApiKeyInput:
       type: object
       required: [apiKey]

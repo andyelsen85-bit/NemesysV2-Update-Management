@@ -3,6 +3,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { and, count, countDistinct, desc, eq, gte, ne, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
+  apiKeyRevealAuditsTable,
   auditEntriesTable,
   clientsTable,
   serverSettingsTable,
@@ -10,7 +11,7 @@ import {
 } from "@workspace/db";
 import type { SoftwarePolicy as DbSoftwarePolicy } from "@workspace/db";
 import { decryptSecret, encryptSecret } from "../lib/secret-crypto";
-import { requireAdmin } from "./auth";
+import { getSessionUsername, requireAdmin } from "./auth";
 import {
   CreateSoftwareBody,
   CreateSoftwareResponse,
@@ -21,10 +22,12 @@ import {
   GetSyncConfigResponse,
   ListAuditEntriesQueryParams,
   ListAuditEntriesResponse,
+  ListClientApiKeyRevealAuditsResponse,
   ListClientsResponse,
   ListSoftwareResponse,
   ReactivateClientParams,
   ReactivateClientResponse,
+  RevealClientApiKeyResponse,
   RevokeClientParams,
   RevokeClientResponse,
   RotateClientApiKeyResponse,
@@ -458,22 +461,38 @@ router.patch("/settings", requireAdmin, async (req, res): Promise<void> => {
   }));
 });
 
-router.post("/settings/api-key/rotate", requireAdmin, async (_req, res): Promise<void> => {
+router.post("/settings/api-key/rotate", requireAdmin, async (req, res): Promise<void> => {
+  const username = getSessionUsername(req);
+  if (!username) {
+    res.status(401).json({ error: "Administrator authentication is required" });
+    return;
+  }
   const apiKey = `nk_live_${randomBytes(24).toString("hex")}`;
   const rotatedAt = new Date();
-  const [settings] = await db
-    .update(serverSettingsTable)
-    .set({
-      clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
-      clientApiKeyEncrypted: encryptSecret(apiKey),
-      apiKeyLastRotatedAt: rotatedAt,
-    })
-    .where(eq(serverSettingsTable.id, "default"))
-    .returning();
+  const settings = await db.transaction(async (transaction) => {
+    const [updated] = await transaction
+      .update(serverSettingsTable)
+      .set({
+        clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+        clientApiKeyEncrypted: encryptSecret(apiKey),
+        apiKeyLastRotatedAt: rotatedAt,
+      })
+      .where(eq(serverSettingsTable.id, "default"))
+      .returning();
+    if (updated) {
+      await transaction.insert(apiKeyRevealAuditsTable).values({
+        id: `key-reveal-${randomBytes(16).toString("hex")}`,
+        username,
+        timestamp: rotatedAt,
+      });
+    }
+    return updated;
+  });
   if (!settings) {
     res.status(404).json({ error: "Server settings not found" });
     return;
   }
+  res.setHeader("Cache-Control", "no-store");
   res.json(RotateClientApiKeyResponse.parse({
     apiKey,
     maskedApiKey: `${apiKey.slice(0, 11)}••••••••${apiKey.slice(-4)}`,
@@ -482,24 +501,40 @@ router.post("/settings/api-key/rotate", requireAdmin, async (_req, res): Promise
 });
 
 router.post("/settings/api-key", requireAdmin, async (req, res): Promise<void> => {
+  const username = getSessionUsername(req);
+  if (!username) {
+    res.status(401).json({ error: "Administrator authentication is required" });
+    return;
+  }
   const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : "";
   if (apiKey.length < 16 || apiKey.length > 256) {
     res.status(400).json({ error: "API key must be between 16 and 256 characters." });
     return;
   }
   const rotatedAt = new Date();
-  const [settings] = await db.update(serverSettingsTable)
-    .set({
-      clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
-      clientApiKeyEncrypted: encryptSecret(apiKey),
-      apiKeyLastRotatedAt: rotatedAt,
-    })
-    .where(eq(serverSettingsTable.id, "default"))
-    .returning();
+  const settings = await db.transaction(async (transaction) => {
+    const [updated] = await transaction.update(serverSettingsTable)
+      .set({
+        clientApiKeyHash: createHash("sha256").update(apiKey).digest("hex"),
+        clientApiKeyEncrypted: encryptSecret(apiKey),
+        apiKeyLastRotatedAt: rotatedAt,
+      })
+      .where(eq(serverSettingsTable.id, "default"))
+      .returning();
+    if (updated) {
+      await transaction.insert(apiKeyRevealAuditsTable).values({
+        id: `key-reveal-${randomBytes(16).toString("hex")}`,
+        username,
+        timestamp: rotatedAt,
+      });
+    }
+    return updated;
+  });
   if (!settings) {
     res.status(404).json({ error: "Server settings not found" });
     return;
   }
+  res.setHeader("Cache-Control", "no-store");
   res.json(RotateClientApiKeyResponse.parse({
     apiKey,
     maskedApiKey: `${apiKey.slice(0, 6)}••••••••${apiKey.slice(-4)}`,
@@ -515,12 +550,50 @@ router.get("/settings/api-key", requireAdmin, async (_req, res): Promise<void> =
   }
   const apiKey = decryptSecret(settings.clientApiKeyEncrypted);
   res.json(GetClientApiKeyResponse.parse({
-    apiKey,
     maskedApiKey: apiKey ? `${apiKey.slice(0, 11)}••••••••${apiKey.slice(-4)}` : null,
     configured: Boolean(settings.clientApiKeyHash),
     recoverable: Boolean(apiKey),
     rotatedAt: settings.apiKeyLastRotatedAt,
   }));
+});
+
+router.post("/settings/api-key/reveal", requireAdmin, async (req, res): Promise<void> => {
+  const username = getSessionUsername(req);
+  if (!username) {
+    res.status(401).json({ error: "Administrator authentication is required" });
+    return;
+  }
+  const revealedAt = new Date();
+  const apiKey = await db.transaction(async (transaction) => {
+    const [settings] = await transaction
+      .select({ clientApiKeyEncrypted: serverSettingsTable.clientApiKeyEncrypted })
+      .from(serverSettingsTable)
+      .where(eq(serverSettingsTable.id, "default"))
+      .limit(1);
+    const revealed = decryptSecret(settings?.clientApiKeyEncrypted);
+    if (!revealed) return null;
+    await transaction.insert(apiKeyRevealAuditsTable).values({
+      id: `key-reveal-${randomBytes(16).toString("hex")}`,
+      username,
+      timestamp: revealedAt,
+    });
+    return revealed;
+  });
+  if (!apiKey) {
+    res.status(409).json({ error: "The configured API key cannot be recovered. Save or generate a new key first." });
+    return;
+  }
+  res.setHeader("Cache-Control", "no-store");
+  res.json(RevealClientApiKeyResponse.parse({ apiKey, revealedAt }));
+});
+
+router.get("/settings/api-key/audit", requireAdmin, async (_req, res): Promise<void> => {
+  const entries = await db
+    .select()
+    .from(apiKeyRevealAuditsTable)
+    .orderBy(desc(apiKeyRevealAuditsTable.timestamp));
+  res.setHeader("Cache-Control", "no-store");
+  res.json(ListClientApiKeyRevealAuditsResponse.parse(entries));
 });
 
 router.get("/sync/config", requireClientApiKey, async (req, res): Promise<void> => {

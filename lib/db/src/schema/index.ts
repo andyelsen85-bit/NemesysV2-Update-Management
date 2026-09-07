@@ -55,6 +55,12 @@ export const auditEntriesTable = pgTable("nemesys_audit_entries", {
   clientIdUnique: unique("nemesys_audit_entries_client_id_unique").on(table.clientId),
 }));
 
+export const apiKeyRevealAuditsTable = pgTable("nemesys_api_key_reveal_audits", {
+  id: text("id").primaryKey(),
+  username: text("username").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const serverSettingsTable = pgTable("nemesys_server_settings", {
   id: text("id").primaryKey(),
   syncPort: integer("sync_port").notNull().default(443),

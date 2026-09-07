@@ -8,8 +8,6 @@
 
 export interface ClientApiKeyStatus {
   /** @nullable */
-  apiKey: string | null;
-  /** @nullable */
   maskedApiKey: string | null;
   configured: boolean;
   recoverable: boolean;

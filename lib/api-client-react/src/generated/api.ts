@@ -24,6 +24,8 @@ import type {
   AdministratorUserInput,
   AdministratorUserUpdate,
   ApiKeyInput,
+  ApiKeyReveal,
+  ApiKeyRevealAudit,
   ApiKeyRotation,
   AuditEntry,
   AuthLoginInput,
@@ -1132,8 +1134,8 @@ export const getGetClientApiKeyUrl = () => {
 }
 
 /**
- * Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
- * @summary Get the configured shared client API key
+ * Returns configuration and recovery status without exposing plaintext key material.
+ * @summary Get masked shared client API key status
  */
 export const getClientApiKey = async ( options?: Parameters<typeof customFetch>[1]): Promise<ClientApiKeyStatus> => {
 
@@ -1180,7 +1182,7 @@ export type GetClientApiKeyQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Get the configured shared client API key
+ * @summary Get masked shared client API key status
  */
 
 export function useGetClientApiKey<TData = Awaited<ReturnType<typeof getClientApiKey>>, TError = ErrorType<unknown>>(
@@ -1272,6 +1274,154 @@ export const useSaveClientApiKey = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getSaveClientApiKeyMutationOptions(options));
     }
+
+export const getRevealClientApiKeyUrl = () => {
+
+
+
+
+  return `/api/settings/api-key/reveal`
+}
+
+/**
+ * @summary Reveal and audit the configured shared client API key
+ */
+export const revealClientApiKey = async ( options?: Parameters<typeof customFetch>[1]): Promise<ApiKeyReveal> => {
+
+  return customFetch<ApiKeyReveal>(getRevealClientApiKeyUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevealClientApiKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revealClientApiKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revealClientApiKey>>, TError,void, TContext> => {
+
+const mutationKey = ['revealClientApiKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revealClientApiKey>>, void> = () => {
+
+
+          return  revealClientApiKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevealClientApiKeyMutationResult = NonNullable<Awaited<ReturnType<typeof revealClientApiKey>>>
+
+    export type RevealClientApiKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Reveal and audit the configured shared client API key
+ */
+export const useRevealClientApiKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revealClientApiKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revealClientApiKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRevealClientApiKeyMutationOptions(options));
+    }
+
+export const getListClientApiKeyRevealAuditsUrl = () => {
+
+
+
+
+  return `/api/settings/api-key/audit`
+}
+
+/**
+ * @summary List immutable client API key reveal audit entries
+ */
+export const listClientApiKeyRevealAudits = async ( options?: Parameters<typeof customFetch>[1]): Promise<ApiKeyRevealAudit[]> => {
+
+  return customFetch<ApiKeyRevealAudit[]>(getListClientApiKeyRevealAuditsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListClientApiKeyRevealAuditsQueryKey = () => {
+    return [
+    `/api/settings/api-key/audit`
+    ] as const;
+    }
+
+
+export const getListClientApiKeyRevealAuditsQueryOptions = <TData = Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListClientApiKeyRevealAuditsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>> = ({ signal }) => listClientApiKeyRevealAudits({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListClientApiKeyRevealAuditsQueryResult = NonNullable<Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>>
+export type ListClientApiKeyRevealAuditsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List immutable client API key reveal audit entries
+ */
+
+export function useListClientApiKeyRevealAudits<TData = Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientApiKeyRevealAudits>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListClientApiKeyRevealAuditsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetLdapSettingsUrl = () => {
 

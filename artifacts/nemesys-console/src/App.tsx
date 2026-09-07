@@ -5,7 +5,7 @@ import {
   Bell, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Code2,
   FileCog, FileKey2, Gauge, Globe2, HardDrive, Laptop, LockKeyhole, Menu,
   MoreHorizontal, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Server,
-  Settings2, ShieldCheck, ShieldX, Trash2, Upload, Users, LogOut, Wifi, X
+  Settings2, ShieldCheck, ShieldX, Trash2, Upload, Users, LogOut, Wifi, X, Eye, EyeOff, Copy
 } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
@@ -14,11 +14,12 @@ import {
   getListAuditEntriesQueryKey, getListClientsQueryKey,
   getListSoftwareQueryKey, useCreateSoftware, useDeleteSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
   useGetClientSyncConfig, useHealthCheck, useListAuditEntries, useListClients, useListSoftware,
-  useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware
+  useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware,
+  useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey
 } from '@workspace/api-client-react';
 import type {
   AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
-  SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig
+  SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -784,10 +785,21 @@ function ApiKeyPage() {
   const settings = useGetServerSettings();
   const current = useGetClientApiKey();
   const rotate = useRotateClientApiKey();
+  const reveal = useRevealClientApiKey();
+  const audits = useListClientApiKeyRevealAudits();
+
   const [customKey, setCustomKey] = useState('');
   const [result, setResult] = useState<ApiKeyRotation | null>(null);
+  const [revealed, setRevealed] = useState<ApiKeyReveal | null>(null);
   const [feedback, setFeedback] = useState('');
-  const configuredKey = current.data as ClientApiKeyStatus | undefined;
+
+  const configuredKey = current.data;
+  const auditList = listData<ApiKeyRevealAudit>(audits.data, 'audit entries');
+
+  const refreshAudits = () => {
+    queryClient.invalidateQueries({ queryKey: getListClientApiKeyRevealAuditsQueryKey() });
+  };
+
   const saveCustom = async (event: FormEvent) => {
     event.preventDefault();
     setFeedback('');
@@ -797,13 +809,161 @@ function ApiKeyPage() {
       if (!response.ok) throw new Error(body.error ?? 'Unable to save API key.');
       setResult(body as ApiKeyRotation);
       setCustomKey('');
+      setRevealed(null);
+      reveal.reset();
       setFeedback('The saved key is shown below and will remain available to authenticated administrators.');
       queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() });
       queryClient.invalidateQueries({ queryKey: ['/api/settings/api-key'] });
+      refreshAudits();
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save API key.'); }
   };
-  const generate = () => rotate.mutate(undefined, { onSuccess: (body) => { setResult(body); setFeedback('A new key was generated intentionally. Copy it now for client reconfiguration.'); queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() }); queryClient.invalidateQueries({ queryKey: ['/api/settings/api-key'] }); } });
-  return <div className="mx-auto max-w-[900px]"><PageHeader eyebrow="Client transport" title="Client API key" detail="Manage the shared key used by Windows services. Existing clients continue working until you intentionally replace the key." /><div className="grid gap-6 md:grid-cols-2"><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Current key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">{settings.data?.apiKeyConfigured ? `Configured · last changed ${formatTime(settings.data.apiKeyLastRotatedAt)}` : 'No shared key has been configured.'}</p></div></div>{configuredKey?.apiKey ? <div className="rounded-lg border border-[#b9d8c5] bg-[#f1faf3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#317357]">Configured key</div><code data-testid="text-configured-api-key" className="mt-2 block break-all font-mono text-xs text-[#284139]">{configuredKey.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(configuredKey.apiKey ?? ''); }}>Copy configured key</Button></div> : configuredKey?.configured ? <div className="rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3 text-xs leading-5 text-[#8f5d4e]">This key was saved before encrypted key recovery was enabled. It cannot be read back from its hash. Use “Save chosen key” to preserve the key you already have, or generate a replacement.</div> : null}<Button type="button" className="mt-4" onClick={generate} disabled={rotate.isPending}><RotateCcw size={14} />{rotate.isPending ? 'Generating…' : 'Generate new key'}</Button><p className="mt-3 text-[11px] leading-5 text-[#71817c]">Generating or saving a key replaces the current key immediately, so older clients must be reconfigured with the returned value.</p></section><section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><h2 className="text-sm font-extrabold text-[#284139]">Save an existing/custom key</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">Use this to preserve a chosen key during migration. It will be encrypted for future display while the server continues authenticating with its hash.</p><form onSubmit={saveCustom} className="mt-4 space-y-3"><input required minLength={16} maxLength={256} type="password" value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="At least 16 characters" className="field-input font-mono" /><Button type="submit" variant="secondary">Save chosen key</Button></form></section></div>{result && <section className="mt-6 rounded-xl border border-[#e4c6b6] bg-[#fff5ee] p-5"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">Full key — copy now</div><code data-testid="text-full-api-key" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-3 font-mono text-xs text-[#586c6d]">{result.apiKey}</code><Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(result.apiKey); }}>Copy key</Button></section>}{feedback && <div role="status" className="mt-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}</div>;
+
+  const generate = () => {
+    setFeedback('');
+    rotate.mutate(undefined, {
+      onSuccess: (body) => {
+        setResult(body);
+        setRevealed(null);
+        reveal.reset();
+        setFeedback('A new key was generated intentionally. Copy it now for client reconfiguration.');
+        queryClient.invalidateQueries({ queryKey: getGetServerSettingsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: ['/api/settings/api-key'] });
+        refreshAudits();
+      },
+      onError: (error) => setFeedback(error instanceof Error ? error.message : 'Unable to generate API key.')
+    });
+  };
+
+  const showKey = () => {
+    setFeedback('');
+    reveal.mutate(undefined, {
+      onSuccess: (body) => {
+        setRevealed(body);
+        setResult(null);
+        refreshAudits();
+      },
+      onError: (error) => setFeedback(error instanceof Error ? error.message : 'Unable to reveal API key.')
+    });
+  };
+
+  const hideKey = () => {
+    setRevealed(null);
+    reveal.reset();
+  };
+
+  return <div className="mx-auto max-w-[900px]">
+    <PageHeader eyebrow="Client transport" title="Client API key" detail="Manage the shared key used by Windows services. Existing clients continue working until you intentionally replace the key." />
+
+    <div className="grid gap-6 md:grid-cols-2">
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]">
+            <LockKeyhole size={18} />
+          </div>
+          <div>
+            <h2 className="text-sm font-extrabold text-[#284139]">Current key</h2>
+            <p className="mt-1 text-xs leading-5 text-[#87958e]">{settings.data?.apiKeyConfigured ? `Configured · last changed ${formatTime(settings.data.apiKeyLastRotatedAt)}` : 'No shared key has been configured.'}</p>
+          </div>
+        </div>
+
+        {configuredKey?.configured ? (
+          <div className="rounded-lg border border-[#b9d8c5] bg-[#f1faf3] p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#317357]">Configured key</div>
+              {configuredKey.recoverable && (
+                <div className="flex items-center gap-2">
+                  {revealed ? (
+                    <Button type="button" variant="ghost" onClick={hideKey} className="h-7 px-2 text-[10px] text-[#28745b] hover:bg-[#d4eadd] hover:text-[#1c5542]"><EyeOff size={13} /> Hide</Button>
+                  ) : (
+                    <Button type="button" variant="ghost" onClick={showKey} disabled={reveal.isPending} className="h-7 px-2 text-[10px] text-[#28745b] hover:bg-[#d4eadd] hover:text-[#1c5542]"><Eye size={13} /> {reveal.isPending ? 'Revealing...' : 'Show API key'}</Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <code data-testid="text-configured-api-key" className="mt-2 block break-all font-mono text-xs text-[#284139]">
+              {revealed ? revealed.apiKey : (configuredKey.maskedApiKey || '****************')}
+            </code>
+
+            {revealed && (
+              <Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(revealed.apiKey); }}>
+                <Copy size={14} /> Copy full key
+              </Button>
+            )}
+          </div>
+        ) : null}
+
+        {configuredKey?.configured && !configuredKey.recoverable && (
+          <div className="mt-3 rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3 text-xs leading-5 text-[#8f5d4e]">
+            This key was saved before encrypted key recovery was enabled. It cannot be read back from its hash. Use “Save chosen key” to preserve the key you already have, or generate a replacement.
+          </div>
+        )}
+
+        <Button type="button" className="mt-4" onClick={generate} disabled={rotate.isPending}>
+          <RotateCcw size={14} />
+          {rotate.isPending ? 'Generating…' : 'Generate new key'}
+        </Button>
+        <p className="mt-3 text-[11px] leading-5 text-[#71817c]">Generating or saving a key replaces the current key immediately, so older clients must be reconfigured with the returned value.</p>
+      </section>
+
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+        <h2 className="text-sm font-extrabold text-[#284139]">Save an existing/custom key</h2>
+        <p className="mt-1 text-xs leading-5 text-[#87958e]">Use this to preserve a chosen key during migration. It will be encrypted for future display while the server continues authenticating with its hash.</p>
+        <form onSubmit={saveCustom} className="mt-4 space-y-3">
+          <input required minLength={16} maxLength={256} type="password" value={customKey} onChange={(event) => setCustomKey(event.target.value)} placeholder="At least 16 characters" className="field-input font-mono" />
+          <Button type="submit" variant="secondary">Save chosen key</Button>
+        </form>
+      </section>
+    </div>
+
+    {result && (
+      <section className="mt-6 rounded-xl border border-[#e4c6b6] bg-[#fff5ee] p-5">
+        <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">Full key — copy now</div>
+        <code data-testid="text-full-api-key" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-3 font-mono text-xs text-[#586c6d]">{result.apiKey}</code>
+        <Button type="button" variant="secondary" className="mt-3" onClick={() => { void navigator.clipboard?.writeText(result.apiKey); }}>
+          <Copy size={14} /> Copy key
+        </Button>
+      </section>
+    )}
+
+    {feedback && (
+      <div role="status" className="mt-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>
+    )}
+
+    <section className="mt-6 overflow-hidden rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+      <div className="border-b border-[#e5ebe5] px-5 py-4">
+        <h2 className="text-sm font-extrabold text-[#284139]">Plaintext disclosure audit</h2>
+        <p className="mt-1 text-xs text-[#87958e]">Every display of the plaintext API key is recorded. This audit history cannot be deleted from the console.</p>
+      </div>
+      {audits.isLoading ? (
+        <div className="p-5"><LoadingRows count={3} /></div>
+      ) : audits.isError ? (
+        <div className="p-5"><ErrorState onRetry={() => audits.refetch()} /></div>
+      ) : auditList.length === 0 ? (
+        <div className="p-5"><EmptyState icon={Archive} title="No disclosures" detail="The API key has not been revealed." /></div>
+      ) : (
+        <div className="divide-y divide-[#edf0eb]">
+          {auditList.map((audit) => (
+            <div key={audit.id} className="flex items-center justify-between px-5 py-3 transition-colors hover:bg-[#fafbf7]">
+              <div className="flex items-center gap-3">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#e3eae7] text-xs font-extrabold text-[#47615c]">
+                  {initials(audit.username)}
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-[#365049]">{audit.username}</div>
+                  <div className="mt-0.5 text-[10px] text-[#8a9891]">Administrator</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock3 size={13} className="text-[#a9b5b0]" />
+                <span className="font-mono text-[10px] text-[#71817c]">{formatTime(audit.timestamp)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  </div>;
 }
 
 function ClientUpdatesPage() {

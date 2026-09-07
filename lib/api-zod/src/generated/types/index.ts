@@ -11,6 +11,8 @@ export * from './administratorUserInput';
 export * from './administratorUserSource';
 export * from './administratorUserUpdate';
 export * from './apiKeyInput';
+export * from './apiKeyReveal';
+export * from './apiKeyRevealAudit';
 export * from './apiKeyRotation';
 export * from './applicationReport';
 export * from './auditEntry';

@@ -503,11 +503,10 @@ export const RotateClientApiKeyResponse = zod.object({
 
 
 /**
- * Returns the configured key to an authenticated administrator when encrypted key material is available. Legacy hash-only keys are reported as not recoverable.
- * @summary Get the configured shared client API key
+ * Returns configuration and recovery status without exposing plaintext key material.
+ * @summary Get masked shared client API key status
  */
 export const GetClientApiKeyResponse = zod.object({
-  "apiKey": zod.string().nullable(),
   "maskedApiKey": zod.string().nullable(),
   "configured": zod.boolean(),
   "recoverable": zod.boolean(),
@@ -537,6 +536,26 @@ export const SaveClientApiKeyResponse = zod.object({
   "maskedApiKey": zod.string(),
   "rotatedAt": zod.coerce.date()
 })
+
+
+/**
+ * @summary Reveal and audit the configured shared client API key
+ */
+export const RevealClientApiKeyResponse = zod.object({
+  "apiKey": zod.string(),
+  "revealedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary List immutable client API key reveal audit entries
+ */
+export const ListClientApiKeyRevealAuditsResponseItem = zod.object({
+  "id": zod.string(),
+  "username": zod.string(),
+  "timestamp": zod.coerce.date()
+})
+export const ListClientApiKeyRevealAuditsResponse = zod.array(ListClientApiKeyRevealAuditsResponseItem)
 
 
 /**

@@ -257,13 +257,22 @@ export interface ApiKeyRotation {
 
 export interface ClientApiKeyStatus {
   /** @nullable */
-  apiKey: string | null;
-  /** @nullable */
   maskedApiKey: string | null;
   configured: boolean;
   recoverable: boolean;
   /** @nullable */
   rotatedAt: string | null;
+}
+
+export interface ApiKeyReveal {
+  apiKey: string;
+  revealedAt: string;
+}
+
+export interface ApiKeyRevealAudit {
+  id: string;
+  username: string;
+  timestamp: string;
 }
 
 export interface ApiKeyInput {

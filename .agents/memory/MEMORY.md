@@ -7,3 +7,4 @@
 - [Automatic schema upgrades](automatic-schema-upgrades.md) — API startup owns idempotent policy-contract upgrades under a PostgreSQL advisory lock.
 - [Comparison-operator rollout](comparison-operator-rollout.md) — deploy operator-aware Windows clients before configuring relational EXE or INI checks.
 - [Client version baseline](client-version-baseline.md) — reported client versions use minimum-baseline semantics; unknown versions remain distinct from outdated ones.
+- [API key disclosure auditing](api-key-disclosure-auditing.md) — plaintext client API keys are explicit, no-store disclosures recorded with the administrator identity.
