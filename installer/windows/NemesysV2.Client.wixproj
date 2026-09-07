@@ -4,10 +4,12 @@
     <OutputType>Package</OutputType>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
-    <MsiVersion>1.0.0</MsiVersion>
     <ClientPublishDir>$(MSBuildProjectDirectory)\..\..\clients\windows-service\bin\Release\net8.0-windows\win-x64\publish</ClientPublishDir>
     <DefineConstants>MsiVersion=$(MsiVersion);ClientPublishDir=$(ClientPublishDir)</DefineConstants>
   </PropertyGroup>
+  <Target Name="ValidateMsiVersion" BeforeTargets="BeforeBuild">
+    <Error Condition="'$(MsiVersion)' == ''" Text="MsiVersion is required. Build with -p:MsiVersion=major.minor.build or use build-msi.ps1 -Version major.minor.build." />
+  </Target>
   <ItemGroup>
     <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
   </ItemGroup>

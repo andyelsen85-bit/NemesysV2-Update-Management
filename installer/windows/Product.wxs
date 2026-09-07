@@ -5,11 +5,13 @@
     Name="NemesysV2 Client"
     Manufacturer="NemesysV2"
     Version="$(var.MsiVersion)"
+    ProductCode="*"
     UpgradeCode="{C1D2B3A4-5E6F-4789-8012-34567890ABCD}"
     Scope="perMachine"
     Compressed="yes">
     <MajorUpgrade
-      Schedule="afterInstallExecute"
+      AllowSameVersionUpgrades="yes"
+      Schedule="afterInstallInitialize"
       DowngradeErrorMessage="A newer NemesysV2 Client is already installed." />
     <MediaTemplate EmbedCab="yes" />
 

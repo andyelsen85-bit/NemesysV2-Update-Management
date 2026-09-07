@@ -130,10 +130,16 @@ msiexec /i NemesysV2.Client.msi /qn `
 The MSI:
 
 - installs per machine;
+- keeps one stable upgrade family while assigning each package a new product identity;
+- removes an older or same-version related package before installing the replacement service;
 - stores the API key with machine-scoped Windows DPAPI;
 - registers and starts the LocalSystem service;
 - preserves ProgramData during upgrades;
 - removes the service, installation directory, obsolete task, and ProgramData on true uninstall.
+
+For SCCM distribution, build from a monotonically increasing three-field
+release tag such as `v1.0.1`. Untagged `main` artifacts use `0.0.<run>` test
+versions and are not intended to upgrade installed production releases.
 
 Client configuration and logs are stored under:
 

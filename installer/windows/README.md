@@ -21,8 +21,25 @@ use the elevated `/uninstall` command documented in the client README.
 Build on a Windows runner with the .NET 8 SDK:
 
 ```powershell
-.\installer\windows\build-msi.ps1 -Version 1.0.0
+.\installer\windows\build-msi.ps1 -Version 1.0.1
 ```
+
+## Upgrade identity and versioning
+
+All NemesysV2 Client packages use one stable `UpgradeCode`, identifying them as
+members of the same upgrade family. Each MSI build generates a new
+`ProductCode`. During an upgrade, Windows Installer removes the related older
+package before installing the replacement service.
+
+Always supply an increasing three-field version (`major.minor.build`) for a
+release. The build rejects missing, four-field, non-numeric, and out-of-range
+versions. Rebuilding the same version is supported for recovery, but normal
+client releases should still increment the version so Windows can reject
+downgrades reliably.
+
+Artifacts from untagged `main` builds use `0.0.<workflow-run>` test versions.
+Use a monotonically increasing `v<major>.<minor>.<build>` tag for an MSI that
+will be distributed through SCCM.
 
 For an unattended deployment, pass MSI properties:
 

@@ -9,11 +9,17 @@ LDAP bind passwords, PKI private keys, and the intentionally recoverable client 
 
 **How to apply:** Preserve `SESSION_SECRET` across replicas and deployments; treat secret rotation as a coordinated reconfiguration of LDAP and SSL settings.
 
-The client MSI wraps the already self-contained Windows EXE installer and is built with WiX v4 plus the .NET 8 SDK on Windows. The Linux workspace cannot produce or validate the Windows MSI binary.
+The client MSI wraps the already self-contained Windows EXE installer and is built with WiX plus the .NET 8 SDK on Windows. The Linux workspace cannot reliably produce or validate the Windows MSI binary.
 
 **Why:** The client targets `net8.0-windows`/`win-x64`, and the MSI packaging toolchain is Windows-oriented.
 
 **How to apply:** Run the documented PowerShell build on a Windows runner after publishing the client; keep the MSI source and silent-property contract in source control, not generated binaries or API keys.
+
+MSI releases keep one stable UpgradeCode, generate a new ProductCode per package, and remove related products before installing the replacement service. Release versions use increasing three-field Windows Installer versions.
+
+**Why:** Windows Installer correlates releases through the UpgradeCode and version rules; inconsistent identities or non-increasing versions can leave multiple registrations competing for the same Windows service.
+
+**How to apply:** Require an explicit `major.minor.build` for every MSI build. Do not rotate the UpgradeCode; increment release versions, and permit same-version major upgrades only as recovery for already duplicated installations.
 
 Kubernetes deployments follow the Change Manager pattern: the web Service exposes ports 80 and 443 directly, console Nginx terminates TLS, and the API remains on Pod-local HTTP. Windows client installs default to HTTPS/443 without requiring a port argument.
 
