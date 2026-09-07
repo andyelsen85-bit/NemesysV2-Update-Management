@@ -525,11 +525,25 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
   const busy = create.isPending || update.isPending;
 
   const groupsQuery = useListLdapDirectoryGroups();
-  const allFetchedGroups = listData<DirectoryGroup>(groupsQuery.data, 'groups');
-  const selectableGroups = allFetchedGroups.filter(g => g.active);
+  const allFetchedGroups = useMemo(() => listData<DirectoryGroup>(groupsQuery.data, 'groups'), [groupsQuery.data]);
+  const groupsById = useMemo(() => new Map(allFetchedGroups.map((group) => [group.id, group])), [allFetchedGroups]);
+  const selectableGroups = useMemo(() => allFetchedGroups.filter((group) => group.active), [allFetchedGroups]);
   const [showTargetingPicker, setShowTargetingPicker] = useState(false);
   const [groupSearch, setGroupSearch] = useState('');
-  const filteredGroups = selectableGroups.filter(g => g.name.toLowerCase().includes(groupSearch.toLowerCase()) || g.samAccountName.toLowerCase().includes(groupSearch.toLowerCase()) || g.distinguishedName.toLowerCase().includes(groupSearch.toLowerCase()));
+  const [debouncedGroupSearch, setDebouncedGroupSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedGroupSearch(groupSearch), 300);
+    return () => window.clearTimeout(timer);
+  }, [groupSearch]);
+  const normalizedGroupSearch = debouncedGroupSearch.trim().toLowerCase();
+  const matchingGroups = useMemo(() => {
+    if (normalizedGroupSearch.length < 2) return [];
+    return selectableGroups.filter((group) =>
+      group.name.toLowerCase().includes(normalizedGroupSearch)
+      || group.samAccountName.toLowerCase().includes(normalizedGroupSearch)
+      || group.distinguishedName.toLowerCase().includes(normalizedGroupSearch));
+  }, [normalizedGroupSearch, selectableGroups]);
+  const visibleGroups = matchingGroups.slice(0, 75);
 
   const legacyExeChecks = (policy && exeChecks.length === 0 && policy.ruleType !== 'ini' && policy.executable !== '-'
     ? [{ executable: policy.executable, targetVersion: policy.targetVersion, installCommand: '' }]
@@ -603,7 +617,7 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
         ) : (
           <div className="flex flex-wrap gap-2">
             {targetAdGroupIds.map((id) => {
-              const group = allFetchedGroups.find((g) => g.id === id);
+              const group = groupsById.get(id);
               return <div key={id} className="flex items-center gap-1 rounded-md border border-[#b8dfc8] bg-[#dff2e9] px-2 py-1 text-[11px] font-bold text-[#176244]"><Users size={12} className="opacity-50" /> <span>{group?.name ?? 'Unknown group'}</span><button type="button" onClick={() => setTargetAdGroupIds((current) => current.filter((x) => x !== id))} className="ml-1 text-[#247455] hover:text-[#0f523b]" aria-label="Remove group"><X size={12} /></button></div>;
             })}
           </div>
@@ -621,14 +635,17 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
               <>
                 <div className="relative mb-2">
                   <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71817c]" />
-                  <input autoFocus placeholder="Search group name, sAMAccountName, or DN" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} className="h-8 w-full rounded-md border border-[#c1d3c9] bg-[#fffdf8] pl-8 pr-2 text-xs text-[#284139] focus:border-[#75ad95] focus:outline-none focus:ring-1 focus:ring-[#75ad95]" />
+                  <input autoFocus data-testid="input-target-group-search" placeholder="Type at least 2 characters to search" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} className="h-8 w-full rounded-md border border-[#c1d3c9] bg-[#fffdf8] pl-8 pr-2 text-xs text-[#284139] focus:border-[#75ad95] focus:outline-none focus:ring-1 focus:ring-[#75ad95]" />
                 </div>
                 <div className="max-h-[140px] overflow-y-auto rounded-md border border-[#d2ddd5] bg-[#fffdf8] text-xs shadow-sm">
-                  {filteredGroups.length === 0 ? (
+                  {normalizedGroupSearch.length < 2 ? (
+                    <div className="p-3 text-center text-[#87958e]">Enter at least 2 characters. The directory contains {selectableGroups.length} active groups.</div>
+                  ) : visibleGroups.length === 0 ? (
                     <div className="p-3 text-center text-[#87958e]">No groups found.</div>
                   ) : (
-                    filteredGroups.map(group => (
-                      <button key={group.id} type="button" onClick={() => {
+                    <>
+                      {visibleGroups.map(group => (
+                        <button key={group.id} type="button" onClick={() => {
                         if (!targetAdGroupIds.includes(group.id)) setTargetAdGroupIds(curr => [...curr, group.id]);
                         setShowTargetingPicker(false);
                         setGroupSearch('');
@@ -638,8 +655,10 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
                           <div className="truncate font-mono text-[10px] text-[#8a9992]">{group.distinguishedName}</div>
                         </div>
                         {targetAdGroupIds.includes(group.id) && <Check size={14} className="text-[#3c8266]" />}
-                      </button>
-                    ))
+                        </button>
+                      ))}
+                      {matchingGroups.length > visibleGroups.length && <div className="border-t border-[#e6ebe6] bg-[#f8faf6] px-3 py-2 text-center text-[10px] font-semibold text-[#71817c]">{matchingGroups.length - visibleGroups.length} more matches — refine your search.</div>}
+                    </>
                   )}
                 </div>
               </>
