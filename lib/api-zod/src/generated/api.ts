@@ -147,6 +147,7 @@ export const GetClientSyncConfigResponse = zod.object({
   "launchExecutablePath": zod.string().default(getClientSyncConfigResponsePoliciesItemLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(getClientSyncConfigResponsePoliciesItemLaunchArgumentsDefault),
   "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
+  "targetAdGroupIds": zod.array(zod.string()).optional().describe('Cached AD group IDs targeted by this policy. Empty targets all computers.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))
@@ -199,6 +200,7 @@ export const ListSoftwareResponseItem = zod.object({
   "launchExecutablePath": zod.string().default(listSoftwareResponseLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(listSoftwareResponseLaunchArgumentsDefault),
   "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
+  "targetAdGroupIds": zod.array(zod.string()).optional().describe('Cached AD group IDs targeted by this policy. Empty targets all computers.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -219,6 +221,7 @@ export const createSoftwareBodyAllowPostponeDefault = false;
 export const createSoftwareBodyLaunchOnExitUpdateModeDefault = false;
 export const createSoftwareBodyLaunchExecutablePathDefault = ``;
 export const createSoftwareBodyLaunchArgumentsDefault = ``;
+export const createSoftwareBodyTargetAdGroupIdsDefault = [];
 
 export const CreateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -251,6 +254,7 @@ export const CreateSoftwareBody = zod.object({
   "launchOnExitUpdateMode": zod.boolean().default(createSoftwareBodyLaunchOnExitUpdateModeDefault),
   "launchExecutablePath": zod.string().default(createSoftwareBodyLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(createSoftwareBodyLaunchArgumentsDefault),
+  "targetAdGroupIds": zod.array(zod.string()).default(createSoftwareBodyTargetAdGroupIdsDefault),
   "enabled": zod.boolean()
 })
 
@@ -297,6 +301,7 @@ export const CreateSoftwareResponse = zod.object({
   "launchExecutablePath": zod.string().default(createSoftwareResponseLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(createSoftwareResponseLaunchArgumentsDefault),
   "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
+  "targetAdGroupIds": zod.array(zod.string()).optional().describe('Cached AD group IDs targeted by this policy. Empty targets all computers.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -320,6 +325,7 @@ export const updateSoftwareBodyAllowPostponeDefault = false;
 export const updateSoftwareBodyLaunchOnExitUpdateModeDefault = false;
 export const updateSoftwareBodyLaunchExecutablePathDefault = ``;
 export const updateSoftwareBodyLaunchArgumentsDefault = ``;
+export const updateSoftwareBodyTargetAdGroupIdsDefault = [];
 
 export const UpdateSoftwareBody = zod.object({
   "name": zod.string().min(1),
@@ -352,6 +358,7 @@ export const UpdateSoftwareBody = zod.object({
   "launchOnExitUpdateMode": zod.boolean().default(updateSoftwareBodyLaunchOnExitUpdateModeDefault),
   "launchExecutablePath": zod.string().default(updateSoftwareBodyLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(updateSoftwareBodyLaunchArgumentsDefault),
+  "targetAdGroupIds": zod.array(zod.string()).default(updateSoftwareBodyTargetAdGroupIdsDefault),
   "enabled": zod.boolean()
 })
 
@@ -398,6 +405,7 @@ export const UpdateSoftwareResponse = zod.object({
   "launchExecutablePath": zod.string().default(updateSoftwareResponseLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(updateSoftwareResponseLaunchArgumentsDefault),
   "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
+  "targetAdGroupIds": zod.array(zod.string()).optional().describe('Cached AD group IDs targeted by this policy. Empty targets all computers.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 })
@@ -561,12 +569,19 @@ export const ListClientApiKeyRevealAuditsResponse = zod.array(ListClientApiKeyRe
 /**
  * @summary Get LDAP connection settings
  */
+export const getLdapSettingsResponseDirectorySyncIntervalMinutesMax = 1440;
+
+
+
 export const GetLdapSettingsResponse = zod.object({
   "enabled": zod.boolean(),
   "url": zod.string(),
   "bindDn": zod.string(),
   "bindPasswordSet": zod.boolean(),
   "baseDn": zod.string(),
+  "computerBaseDn": zod.string(),
+  "directoryAutoSyncEnabled": zod.boolean(),
+  "directorySyncIntervalMinutes": zod.number().min(1).max(getLdapSettingsResponseDirectorySyncIntervalMinutesMax),
   "userFilter": zod.string(),
   "usernameAttribute": zod.string(),
   "displayNameAttribute": zod.string(),
@@ -579,12 +594,19 @@ export const GetLdapSettingsResponse = zod.object({
 /**
  * @summary Save LDAP connection settings
  */
+export const updateLdapSettingsBodyDirectorySyncIntervalMinutesMax = 1440;
+
+
+
 export const UpdateLdapSettingsBody = zod.object({
   "enabled": zod.boolean(),
   "url": zod.string(),
   "bindDn": zod.string(),
   "bindPassword": zod.string().optional(),
   "baseDn": zod.string(),
+  "computerBaseDn": zod.string(),
+  "directoryAutoSyncEnabled": zod.boolean(),
+  "directorySyncIntervalMinutes": zod.number().min(1).max(updateLdapSettingsBodyDirectorySyncIntervalMinutesMax),
   "userFilter": zod.string(),
   "usernameAttribute": zod.string(),
   "displayNameAttribute": zod.string(),
@@ -593,12 +615,19 @@ export const UpdateLdapSettingsBody = zod.object({
   "caCertificatePem": zod.string().optional()
 })
 
+export const updateLdapSettingsResponseDirectorySyncIntervalMinutesMax = 1440;
+
+
+
 export const UpdateLdapSettingsResponse = zod.object({
   "enabled": zod.boolean(),
   "url": zod.string(),
   "bindDn": zod.string(),
   "bindPasswordSet": zod.boolean(),
   "baseDn": zod.string(),
+  "computerBaseDn": zod.string(),
+  "directoryAutoSyncEnabled": zod.boolean(),
+  "directorySyncIntervalMinutes": zod.number().min(1).max(updateLdapSettingsResponseDirectorySyncIntervalMinutesMax),
   "userFilter": zod.string(),
   "usernameAttribute": zod.string(),
   "displayNameAttribute": zod.string(),
@@ -622,6 +651,57 @@ export const TestLdapConnectionResponse = zod.object({
   "message": zod.string(),
   "details": zod.string().optional()
 })
+
+
+/**
+ * @summary Refresh the cached Active Directory computers and groups
+ */
+export const SyncLdapDirectoryResponse = zod.object({
+  "id": zod.string(),
+  "lastSuccessfulSyncAt": zod.coerce.date().nullable(),
+  "lastAttemptAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Get cached directory synchronization status
+ */
+export const GetLdapDirectoryCacheStatusResponse = zod.object({
+  "id": zod.string(),
+  "lastSuccessfulSyncAt": zod.coerce.date().nullable(),
+  "lastAttemptAt": zod.coerce.date().nullable(),
+  "lastError": zod.string().nullable()
+})
+
+
+/**
+ * @summary List cached Active Directory groups
+ */
+export const ListLdapDirectoryGroupsResponseItem = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "samAccountName": zod.string(),
+  "distinguishedName": zod.string(),
+  "active": zod.boolean(),
+  "syncedAt": zod.coerce.date()
+})
+export const ListLdapDirectoryGroupsResponse = zod.array(ListLdapDirectoryGroupsResponseItem)
+
+
+/**
+ * @summary List cached Active Directory computers
+ */
+export const ListLdapDirectoryComputersResponseItem = zod.object({
+  "id": zod.string(),
+  "hostname": zod.string(),
+  "samAccountName": zod.string(),
+  "dnsHostName": zod.string(),
+  "distinguishedName": zod.string(),
+  "enabled": zod.boolean(),
+  "syncedAt": zod.coerce.date()
+})
+export const ListLdapDirectoryComputersResponse = zod.array(ListLdapDirectoryComputersResponseItem)
 
 
 /**
@@ -843,6 +923,7 @@ export const GetSyncConfigResponse = zod.object({
   "launchExecutablePath": zod.string().default(getSyncConfigResponsePoliciesItemLaunchExecutablePathDefault),
   "launchArguments": zod.string().default(getSyncConfigResponsePoliciesItemLaunchArgumentsDefault),
   "updateModeCycleId": zod.string().describe('Server-generated identifier for the current Update Mode cycle.'),
+  "targetAdGroupIds": zod.array(zod.string()).optional().describe('Cached AD group IDs targeted by this policy. Empty targets all computers.'),
   "enabled": zod.boolean(),
   "lastUpdated": zod.coerce.date()
 }))

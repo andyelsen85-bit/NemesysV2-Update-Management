@@ -35,6 +35,9 @@ import type {
   ClientApiKeyStatus,
   ClientEnrollmentInput,
   DashboardSummary,
+  DirectoryCacheStatus,
+  DirectoryComputer,
+  DirectoryGroup,
   GetSyncConfigParams,
   HealthStatus,
   LdapDiagnostic,
@@ -1641,6 +1644,308 @@ export const useTestLdapConnection = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getTestLdapConnectionMutationOptions(options));
     }
+
+export const getSyncLdapDirectoryUrl = () => {
+
+
+
+
+  return `/api/settings/ldap/directory/sync`
+}
+
+/**
+ * @summary Refresh the cached Active Directory computers and groups
+ */
+export const syncLdapDirectory = async ( options?: Parameters<typeof customFetch>[1]): Promise<DirectoryCacheStatus> => {
+
+  return customFetch<DirectoryCacheStatus>(getSyncLdapDirectoryUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSyncLdapDirectoryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncLdapDirectory>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncLdapDirectory>>, TError,void, TContext> => {
+
+const mutationKey = ['syncLdapDirectory'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncLdapDirectory>>, void> = () => {
+
+
+          return  syncLdapDirectory(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncLdapDirectoryMutationResult = NonNullable<Awaited<ReturnType<typeof syncLdapDirectory>>>
+
+    export type SyncLdapDirectoryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Refresh the cached Active Directory computers and groups
+ */
+export const useSyncLdapDirectory = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncLdapDirectory>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncLdapDirectory>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSyncLdapDirectoryMutationOptions(options));
+    }
+
+export const getGetLdapDirectoryCacheStatusUrl = () => {
+
+
+
+
+  return `/api/settings/ldap/directory/status`
+}
+
+/**
+ * @summary Get cached directory synchronization status
+ */
+export const getLdapDirectoryCacheStatus = async ( options?: Parameters<typeof customFetch>[1]): Promise<DirectoryCacheStatus> => {
+
+  return customFetch<DirectoryCacheStatus>(getGetLdapDirectoryCacheStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLdapDirectoryCacheStatusQueryKey = () => {
+    return [
+    `/api/settings/ldap/directory/status`
+    ] as const;
+    }
+
+
+export const getGetLdapDirectoryCacheStatusQueryOptions = <TData = Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLdapDirectoryCacheStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>> = ({ signal }) => getLdapDirectoryCacheStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLdapDirectoryCacheStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>>
+export type GetLdapDirectoryCacheStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get cached directory synchronization status
+ */
+
+export function useGetLdapDirectoryCacheStatus<TData = Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLdapDirectoryCacheStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLdapDirectoryCacheStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListLdapDirectoryGroupsUrl = () => {
+
+
+
+
+  return `/api/settings/ldap/directory/groups`
+}
+
+/**
+ * @summary List cached Active Directory groups
+ */
+export const listLdapDirectoryGroups = async ( options?: Parameters<typeof customFetch>[1]): Promise<DirectoryGroup[]> => {
+
+  return customFetch<DirectoryGroup[]>(getListLdapDirectoryGroupsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLdapDirectoryGroupsQueryKey = () => {
+    return [
+    `/api/settings/ldap/directory/groups`
+    ] as const;
+    }
+
+
+export const getListLdapDirectoryGroupsQueryOptions = <TData = Awaited<ReturnType<typeof listLdapDirectoryGroups>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLdapDirectoryGroupsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLdapDirectoryGroups>>> = ({ signal }) => listLdapDirectoryGroups({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryGroups>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLdapDirectoryGroupsQueryResult = NonNullable<Awaited<ReturnType<typeof listLdapDirectoryGroups>>>
+export type ListLdapDirectoryGroupsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List cached Active Directory groups
+ */
+
+export function useListLdapDirectoryGroups<TData = Awaited<ReturnType<typeof listLdapDirectoryGroups>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryGroups>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLdapDirectoryGroupsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListLdapDirectoryComputersUrl = () => {
+
+
+
+
+  return `/api/settings/ldap/directory/computers`
+}
+
+/**
+ * @summary List cached Active Directory computers
+ */
+export const listLdapDirectoryComputers = async ( options?: Parameters<typeof customFetch>[1]): Promise<DirectoryComputer[]> => {
+
+  return customFetch<DirectoryComputer[]>(getListLdapDirectoryComputersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLdapDirectoryComputersQueryKey = () => {
+    return [
+    `/api/settings/ldap/directory/computers`
+    ] as const;
+    }
+
+
+export const getListLdapDirectoryComputersQueryOptions = <TData = Awaited<ReturnType<typeof listLdapDirectoryComputers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryComputers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLdapDirectoryComputersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLdapDirectoryComputers>>> = ({ signal }) => listLdapDirectoryComputers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryComputers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLdapDirectoryComputersQueryResult = NonNullable<Awaited<ReturnType<typeof listLdapDirectoryComputers>>>
+export type ListLdapDirectoryComputersQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List cached Active Directory computers
+ */
+
+export function useListLdapDirectoryComputers<TData = Awaited<ReturnType<typeof listLdapDirectoryComputers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLdapDirectoryComputers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLdapDirectoryComputersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetSslSettingsUrl = () => {
 

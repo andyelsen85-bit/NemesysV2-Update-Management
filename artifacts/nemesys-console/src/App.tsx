@@ -15,11 +15,14 @@ import {
   getListSoftwareQueryKey, useCreateSoftware, useDeleteSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
   useGetClientSyncConfig, useHealthCheck, useListAuditEntries, useListClients, useListSoftware,
   useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware,
-  useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey
+  useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey,
+  useGetLdapDirectoryCacheStatus, useListLdapDirectoryGroups, useListLdapDirectoryComputers, useSyncLdapDirectory,
+  getGetLdapDirectoryCacheStatusQueryKey, getListLdapDirectoryGroupsQueryKey, getListLdapDirectoryComputersQueryKey
 } from '@workspace/api-client-react';
 import type {
   AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
-  SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit
+  SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit,
+  DirectoryGroup, DirectoryComputer
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -455,10 +458,12 @@ function PolicyCardUnified({ policy, onEdit, onDelete, deleting }: { policy: Sof
   const supervisedCount = policy.supervisedExecutables.length;
   const versionCount = policy.exeChecks.length;
   const iniCount = policy.iniChecks.length;
+  const targetCount = policy.targetAdGroupIds?.length ?? 0;
+  const targetingText = targetCount > 0 ? `${targetCount} AD group${targetCount === 1 ? '' : 's'}` : 'All workstations';
   return <div data-testid={`card-policy-${policy.id}`} className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b7cec1]">
     <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#dff2e9] text-[#247455]"><HardDrive size={18} /></div><div className="min-w-0"><h2 className="truncate text-sm font-extrabold text-[#2d4942]">{policy.name}</h2><div className="mt-1 text-[10px] text-[#8a9992]">Application supervision and compliance checks</div></div></div><div className="flex items-center gap-1"><button aria-label={`Edit ${policy.name}`} data-testid={`button-edit-policy-${policy.id}`} onClick={onEdit} className="rounded-lg p-2 text-[#79908a] hover:bg-[#e5eee8] hover:text-[#246d53]"><Pencil size={15} /></button><button aria-label={`Delete ${policy.name}`} data-testid={`button-delete-policy-${policy.id}`} disabled={deleting} onClick={onDelete} className="rounded-lg p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31] disabled:opacity-50"><Trash2 size={15} /></button></div></div>
-    <div className="mt-5 grid grid-cols-3 gap-2 border-y border-[#e7ece7] py-3"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Supervised</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{supervisedCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Versions</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{versionCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">INI values</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{iniCount}</div></div></div>
-    <div className="flex items-center justify-between"><div className="flex items-center gap-2"><StatusPill value={policy.enabled ? 'enforcing' : 'paused'} kind={policy.enabled ? 'success' : 'neutral'} /><span className="text-[11px] text-[#87958e]">{policy.normalCloseTimeoutSeconds}s normal close</span><span className="text-[11px] text-[#87958e]">· Postpone {policy.allowPostpone ? 'allowed' : 'disabled'}</span></div><span className="font-mono text-[10px] text-[#9aa7a0]">updated {relativeTime(policy.lastUpdated)}</span></div>
+    <div className="mt-5 grid grid-cols-4 gap-2 border-y border-[#e7ece7] py-3"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Supervised</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{supervisedCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Versions</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{versionCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">INI values</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{iniCount}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Targeting</div><div className="mt-1 text-xs font-medium text-[#315049]">{targetingText}</div></div></div>
+    <div className="mt-3 flex items-center justify-between"><div className="flex items-center gap-2"><StatusPill value={policy.enabled ? 'enforcing' : 'paused'} kind={policy.enabled ? 'success' : 'neutral'} /><span className="text-[11px] text-[#87958e]">{policy.normalCloseTimeoutSeconds}s normal close</span><span className="text-[11px] text-[#87958e]">· Postpone {policy.allowPostpone ? 'allowed' : 'disabled'}</span></div><span className="font-mono text-[10px] text-[#9aa7a0]">updated {relativeTime(policy.lastUpdated)}</span></div>
     {iniCount > 0 && <div className="mt-4 flex items-center gap-2 rounded-lg bg-[#f5f8f3] px-3 py-2 text-[11px] text-[#71817c]"><Code2 size={13} className="text-[#4b9474]" />{iniCount} expected INI value{iniCount === 1 ? '' : 's'}<span className="ml-auto truncate font-mono text-[#4d7165]">{policy.iniChecks.map((rule) => `[${rule.section}]`).join(' ')}</span></div>}
   </div>;
 }
@@ -515,8 +520,16 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
   const [supervisedExecutables, setSupervisedExecutables] = useState<string[]>(policy?.supervisedExecutables ?? []);
   const [exeChecks, setExeChecks] = useState<ExeCheck[]>(policy?.exeChecks ?? []);
   const [iniChecks, setIniChecks] = useState<IniCheck[]>(policy?.iniChecks ?? []);
+  const [targetAdGroupIds, setTargetAdGroupIds] = useState<string[]>(policy?.targetAdGroupIds ?? []);
   const [feedback, setFeedback] = useState('');
   const busy = create.isPending || update.isPending;
+
+  const groupsQuery = useListLdapDirectoryGroups();
+  const allFetchedGroups = listData<DirectoryGroup>(groupsQuery.data, 'groups');
+  const selectableGroups = allFetchedGroups.filter(g => g.active);
+  const [showTargetingPicker, setShowTargetingPicker] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+  const filteredGroups = selectableGroups.filter(g => g.name.toLowerCase().includes(groupSearch.toLowerCase()) || g.samAccountName.toLowerCase().includes(groupSearch.toLowerCase()) || g.distinguishedName.toLowerCase().includes(groupSearch.toLowerCase()));
 
   const legacyExeChecks = (policy && exeChecks.length === 0 && policy.ruleType !== 'ini' && policy.executable !== '-'
     ? [{ executable: policy.executable, targetVersion: policy.targetVersion, installCommand: '' }]
@@ -560,6 +573,7 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
       launchOnExitUpdateMode,
       launchExecutablePath,
       launchArguments,
+      targetAdGroupIds,
       enabled,
     };
     const onSuccess = () => {
@@ -577,6 +591,62 @@ function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onC
   return <Modal wide title={isEdit ? 'Edit policy' : 'New software policy'} subtitle="Keep application supervision, EXE versions, and INI values together in one policy." onClose={onClose}>
     <form onSubmit={submit} className="space-y-4">
       <label className="block"><span className="field-label">Application name</span><input autoFocus required data-testid="input-policy-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. SecureConnect Agent" className="field-input" /></label>
+
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div><h3 className="text-xs font-extrabold text-[#38534a]">Targeting</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Restrict this policy to computers in specific Active Directory groups. If no groups are selected, the policy applies to all workstations.</p></div>
+          <Button type="button" variant="secondary" onClick={() => setShowTargetingPicker(true)} data-testid="button-add-targeting"><Plus size={13} /> Targeting</Button>
+        </div>
+
+        {targetAdGroupIds.length === 0 ? (
+          <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">All workstations</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {targetAdGroupIds.map((id) => {
+              const group = allFetchedGroups.find((g) => g.id === id);
+              return <div key={id} className="flex items-center gap-1 rounded-md border border-[#b8dfc8] bg-[#dff2e9] px-2 py-1 text-[11px] font-bold text-[#176244]"><Users size={12} className="opacity-50" /> <span>{group?.name ?? 'Unknown group'}</span><button type="button" onClick={() => setTargetAdGroupIds((current) => current.filter((x) => x !== id))} className="ml-1 text-[#247455] hover:text-[#0f523b]" aria-label="Remove group"><X size={12} /></button></div>;
+            })}
+          </div>
+        )}
+
+        {showTargetingPicker && (
+          <div className="mt-2 rounded-lg border border-[#c1d3c9] bg-[#eef5f0] p-3 shadow-inner">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#38534a]">Select Active Directory Group</div>
+              <button type="button" onClick={() => setShowTargetingPicker(false)} className="rounded text-[#71817c] hover:bg-[#dbe6df]"><X size={14} /></button>
+            </div>
+            {selectableGroups.length === 0 ? (
+              <div className="text-[11px] text-[#71817c]">No active AD groups found. <Link href="/security" className="text-[#277657] font-bold hover:underline" onClick={onClose}>Go to Security &gt; LDAP</Link> to sync the directory.</div>
+            ) : (
+              <>
+                <div className="relative mb-2">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71817c]" />
+                  <input autoFocus placeholder="Search group name, sAMAccountName, or DN" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} className="h-8 w-full rounded-md border border-[#c1d3c9] bg-[#fffdf8] pl-8 pr-2 text-xs text-[#284139] focus:border-[#75ad95] focus:outline-none focus:ring-1 focus:ring-[#75ad95]" />
+                </div>
+                <div className="max-h-[140px] overflow-y-auto rounded-md border border-[#d2ddd5] bg-[#fffdf8] text-xs shadow-sm">
+                  {filteredGroups.length === 0 ? (
+                    <div className="p-3 text-center text-[#87958e]">No groups found.</div>
+                  ) : (
+                    filteredGroups.map(group => (
+                      <button key={group.id} type="button" onClick={() => {
+                        if (!targetAdGroupIds.includes(group.id)) setTargetAdGroupIds(curr => [...curr, group.id]);
+                        setShowTargetingPicker(false);
+                        setGroupSearch('');
+                      }} className="flex w-full items-center justify-between border-b border-[#f4f5ef] px-3 py-2 text-left transition hover:bg-[#f8faf6] last:border-0">
+                        <div className="min-w-0">
+                          <div className="truncate font-bold text-[#35534a]">{group.name}</div>
+                          <div className="truncate font-mono text-[10px] text-[#8a9992]">{group.distinguishedName}</div>
+                        </div>
+                        {targetAdGroupIds.includes(group.id) && <Check size={14} className="text-[#3c8266]" />}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
         <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">Application checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">List every EXE whose process should be supervised and closed before an update. These entries do not need a version target.</p></div><Button type="button" variant="secondary" onClick={addSupervised} data-testid="button-add-supervised-exe"><Plus size={13} /> Add EXE</Button></div>
@@ -743,7 +813,7 @@ function AdministratorsPage() {
 }
 
 function SecurityPage() {
-  const [ldap, setLdap] = useState<LdapSettings>({ enabled: false, url: '', bindDn: '', bindPasswordSet: false, baseDn: '', userFilter: '(&(objectClass=person)(sAMAccountName={{username}}))', usernameAttribute: 'sAMAccountName', displayNameAttribute: 'displayName', emailAttribute: 'mail', verifyTlsCertificate: true, caCertificateInstalled: false });
+  const [ldap, setLdap] = useState<LdapSettings>({ enabled: false, url: '', bindDn: '', bindPasswordSet: false, baseDn: '', computerBaseDn: '', directoryAutoSyncEnabled: false, directorySyncIntervalMinutes: 60, userFilter: '(&(objectClass=person)(sAMAccountName={{username}}))', usernameAttribute: 'sAMAccountName', displayNameAttribute: 'displayName', emailAttribute: 'mail', verifyTlsCertificate: true, caCertificateInstalled: false });
   const [ldapPassword, setLdapPassword] = useState('');
   const [ldapTest, setLdapTest] = useState({ username: '', password: '' });
   const [ssl, setSsl] = useState<SslSettings>({ certificateInstalled: false, privateKeyInstalled: false, chainInstalled: false, certificateFingerprint: null, certificateSubject: null, certificateExpiresAt: null, forceHttps: false, hstsEnabled: false });
@@ -751,7 +821,19 @@ function SecurityPage() {
   const [privateKeyPem, setPrivateKeyPem] = useState('');
   const [chainPem, setChainPem] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [syncFeedback, setSyncFeedback] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const statusQuery = useGetLdapDirectoryCacheStatus();
+  const groupsQuery = useListLdapDirectoryGroups();
+  const computersQuery = useListLdapDirectoryComputers();
+  const syncMutation = useSyncLdapDirectory();
+
+  const activeGroupCount = (groupsQuery.data ?? []).filter((g: DirectoryGroup) => g.active).length;
+  const computers = computersQuery.data ?? [];
+  const enabledComputerCount = computers.filter((c: DirectoryComputer) => c.enabled).length;
+  const disabledComputerCount = computers.length - enabledComputerCount;
+
   useEffect(() => {
     Promise.all([fetch('/api/settings/ldap', { credentials: 'include' }).then((response) => response.json()), fetch('/api/settings/ssl', { credentials: 'include' }).then((response) => response.json())]).then(([ldapBody, sslBody]) => { setLdap(ldapBody as LdapSettings); setSsl(sslBody as SslSettings); }).catch(() => setFeedback('Unable to load security settings.'));
   }, []);
@@ -760,7 +842,7 @@ function SecurityPage() {
   const saveLdap = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setFeedback('');
     try {
-      const response = await fetch('/api/settings/ldap', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: ldap.enabled, url: ldap.url, bindDn: ldap.bindDn, bindPassword: ldapPassword || undefined, baseDn: ldap.baseDn, userFilter: ldap.userFilter, usernameAttribute: ldap.usernameAttribute, displayNameAttribute: ldap.displayNameAttribute, emailAttribute: ldap.emailAttribute, verifyTlsCertificate: ldap.verifyTlsCertificate }) });
+      const response = await fetch('/api/settings/ldap', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: ldap.enabled, url: ldap.url, bindDn: ldap.bindDn, bindPassword: ldapPassword || undefined, baseDn: ldap.baseDn, computerBaseDn: ldap.computerBaseDn, directoryAutoSyncEnabled: ldap.directoryAutoSyncEnabled, directorySyncIntervalMinutes: Number(ldap.directorySyncIntervalMinutes), userFilter: ldap.userFilter, usernameAttribute: ldap.usernameAttribute, displayNameAttribute: ldap.displayNameAttribute, emailAttribute: ldap.emailAttribute, verifyTlsCertificate: ldap.verifyTlsCertificate }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Unable to save LDAP settings.'); setLdap(body as LdapSettings); setLdapPassword(''); setFeedback('LDAP settings saved.');
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save LDAP settings.'); } finally { setBusy(false); }
   };
@@ -775,9 +857,56 @@ function SecurityPage() {
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Unable to save SSL settings.'); setSsl(body as SslSettings); setCertificatePem(''); setPrivateKeyPem(''); setChainPem(''); setFeedback('PKI certificate saved. HTTPS activation will be applied by the server runtime or reverse proxy.');
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save SSL settings.'); } finally { setBusy(false); }
   };
-  return <div className="mx-auto max-w-[1080px]"><PageHeader eyebrow="Trust and identity" title="Security" detail="Connect administrator access to LDAP and activate HTTPS with your organization’s PKI certificate." />{feedback && <div role="status" className="mb-5 rounded-lg border border-[#b9d8c5] bg-[#e6f4eb] px-4 py-3 text-xs font-semibold text-[#317357]">{feedback}</div>}<div className="grid gap-6 xl:grid-cols-2">
-    <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><Users size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">LDAP directory</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">The bind password is encrypted before it is stored in PostgreSQL.</p></div></div><form onSubmit={saveLdap} className="space-y-3"><SettingToggle label="Enable LDAP administrators" detail="Added users authenticate against this directory." value={ldap.enabled} onChange={(value) => updateLdap('enabled', value)} testId="toggle-ldap-enabled" /><label className="block"><span className="field-label">LDAP URL</span><input required value={ldap.url} onChange={(event) => updateLdap('url', event.target.value)} placeholder="ldaps://directory.example.com:636" className="field-input font-mono" /></label><label className="block"><span className="field-label">Service bind DN</span><input value={ldap.bindDn} onChange={(event) => updateLdap('bindDn', event.target.value)} placeholder="CN=svc-nemesys,OU=Service Accounts,DC=example,DC=local" className="field-input font-mono" /></label><label className="block"><span className="field-label">Service bind password {ldap.bindPasswordSet && <span className="font-normal normal-case text-[#4d9475]">(saved)</span>}</span><input type="password" value={ldapPassword} onChange={(event) => setLdapPassword(event.target.value)} placeholder={ldap.bindPasswordSet ? 'Leave blank to keep saved password' : 'Required for directory search'} className="field-input" /></label><label className="block"><span className="field-label">Base DN</span><input required value={ldap.baseDn} onChange={(event) => updateLdap('baseDn', event.target.value)} placeholder="DC=example,DC=local" className="field-input font-mono" /></label><label className="block"><span className="field-label">User filter</span><input required value={ldap.userFilter} onChange={(event) => updateLdap('userFilter', event.target.value)} className="field-input font-mono" /></label><div className="grid gap-3 sm:grid-cols-3"><label><span className="field-label">Username attr.</span><input value={ldap.usernameAttribute} onChange={(event) => updateLdap('usernameAttribute', event.target.value)} className="field-input font-mono" /></label><label><span className="field-label">Display attr.</span><input value={ldap.displayNameAttribute} onChange={(event) => updateLdap('displayNameAttribute', event.target.value)} className="field-input font-mono" /></label><label><span className="field-label">Email attr.</span><input value={ldap.emailAttribute} onChange={(event) => updateLdap('emailAttribute', event.target.value)} className="field-input font-mono" /></label></div><SettingToggle label="Verify TLS certificate" detail="Recommended for LDAPS and organization CAs." value={ldap.verifyTlsCertificate} onChange={(value) => updateLdap('verifyTlsCertificate', value)} testId="toggle-ldap-tls" /><Button type="submit" disabled={busy}><Save size={14} />Save LDAP settings</Button></form><form onSubmit={testLdap} className="mt-5 space-y-3 border-t border-[#e7ece7] pt-4"><div className="text-xs font-extrabold text-[#38534a]">Connection diagnostic</div><div className="grid gap-3 sm:grid-cols-2"><input required placeholder="Test username" value={ldapTest.username} onChange={(event) => setLdapTest((current) => ({ ...current, username: event.target.value }))} className="field-input" /><input required type="password" placeholder="Test password" value={ldapTest.password} onChange={(event) => setLdapTest((current) => ({ ...current, password: event.target.value }))} className="field-input" /></div><Button type="submit" variant="secondary" disabled={busy}>Test LDAP connection</Button></form></section>
-    <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><ShieldCheck size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Organization PKI / HTTPS</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">PEM material is validated, matched, and encrypted at rest for Kubernetes-safe persistence.</p></div></div><form onSubmit={saveSsl} className="space-y-3"><label className="block"><span className="field-label">Certificate PEM</span><textarea required={ !ssl.certificateInstalled } value={certificatePem} onChange={(event) => setCertificatePem(event.target.value)} placeholder={ssl.certificateInstalled ? 'Leave blank to keep the installed certificate' : '-----BEGIN CERTIFICATE-----'} className="field-input min-h-28 font-mono text-[10px]" /><input type="file" accept=".pem,.crt,.cer" onChange={readPem(setCertificatePem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><label className="block"><span className="field-label">Private key PEM</span><textarea required={!ssl.privateKeyInstalled} value={privateKeyPem} onChange={(event) => setPrivateKeyPem(event.target.value)} placeholder={ssl.privateKeyInstalled ? 'Leave blank to keep the installed private key' : '-----BEGIN PRIVATE KEY-----'} className="field-input min-h-28 font-mono text-[10px]" /><input type="file" accept=".pem,.key" onChange={readPem(setPrivateKeyPem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><label className="block"><span className="field-label">Certificate chain PEM <span className="font-normal normal-case">(optional)</span></span><textarea value={chainPem} onChange={(event) => setChainPem(event.target.value)} placeholder="-----BEGIN CERTIFICATE-----" className="field-input min-h-20 font-mono text-[10px]" /><input type="file" accept=".pem,.crt,.cer" onChange={readPem(setChainPem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><div className="rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 text-xs text-[#536b68]"><div className="flex items-center justify-between"><span>Certificate</span><StatusPill value={ssl.certificateInstalled ? 'installed' : 'missing'} kind={ssl.certificateInstalled ? 'success' : 'warning'} /></div>{ssl.certificateSubject && <div className="mt-2 truncate font-mono text-[10px]">{ssl.certificateSubject}</div>}{ssl.certificateExpiresAt && <div className="mt-1 font-mono text-[10px]">Expires {formatTime(ssl.certificateExpiresAt)}</div>}</div><SettingToggle label="Activate HTTPS" detail="Serve the API over the uploaded certificate and redirect HTTP requests." value={ssl.forceHttps} onChange={(value) => setSsl((current) => ({ ...current, forceHttps: value }))} testId="toggle-force-https" /><SettingToggle label="Enable HSTS" detail="Only enable after HTTPS is confirmed reachable." value={ssl.hstsEnabled} onChange={(value) => setSsl((current) => ({ ...current, hstsEnabled: value }))} testId="toggle-hsts" /><Button type="submit" disabled={busy}><Upload size={14} />Save certificate settings</Button></form></section>
+  const handleSyncLdap = () => {
+    setSyncFeedback('');
+    syncMutation.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetLdapDirectoryCacheStatusQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListLdapDirectoryGroupsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListLdapDirectoryComputersQueryKey() });
+        setSyncFeedback('Directory cache synchronized.');
+      },
+      onError: (error) => {
+        setSyncFeedback(error instanceof Error ? error.message : 'Synchronization failed.');
+      }
+    });
+  };
+  return <div className="mx-auto max-w-[1080px]"><PageHeader eyebrow="Trust and identity" title="Security" detail="Connect administrator access to LDAP and activate HTTPS with your organization’s PKI certificate." />{feedback && <div role="status" className="mb-5 rounded-lg border border-[#b9d8c5] bg-[#e6f4eb] px-4 py-3 text-xs font-semibold text-[#317357]">{feedback}</div>}<div className="grid gap-6 lg:grid-cols-2">
+    <div className="flex flex-col gap-6">
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><Users size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">LDAP directory</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">The bind password is encrypted before it is stored in PostgreSQL.</p></div></div><form onSubmit={saveLdap} className="space-y-3"><SettingToggle label="Enable LDAP administrators" detail="Added users authenticate against this directory." value={ldap.enabled} onChange={(value) => updateLdap('enabled', value)} testId="toggle-ldap-enabled" /><label className="block"><span className="field-label">LDAP URL</span><input required value={ldap.url} onChange={(event) => updateLdap('url', event.target.value)} placeholder="ldaps://directory.example.com:636" className="field-input font-mono" /></label><label className="block"><span className="field-label">Service bind DN</span><input value={ldap.bindDn} onChange={(event) => updateLdap('bindDn', event.target.value)} placeholder="CN=svc-nemesys,OU=Service Accounts,DC=example,DC=local" className="field-input font-mono" /></label><label className="block"><span className="field-label">Service bind password {ldap.bindPasswordSet && <span className="font-normal normal-case text-[#4d9475]">(saved)</span>}</span><input type="password" value={ldapPassword} onChange={(event) => setLdapPassword(event.target.value)} placeholder={ldap.bindPasswordSet ? 'Leave blank to keep saved password' : 'Required for directory search'} className="field-input" /></label><label className="block"><span className="field-label">Base DN</span><input required value={ldap.baseDn} onChange={(event) => updateLdap('baseDn', event.target.value)} placeholder="DC=example,DC=local" className="field-input font-mono" /></label><label className="block"><span className="field-label">Computer Base OU DN</span><input value={ldap.computerBaseDn} onChange={(event) => updateLdap('computerBaseDn', event.target.value)} placeholder="OU=Workstations,DC=example,DC=local" className="field-input font-mono" /><span className="mt-1 block text-[10px] text-[#87958e]">Only computer objects under this OU are cached for targeting.</span></label><label className="block"><span className="field-label">User filter</span><input required value={ldap.userFilter} onChange={(event) => updateLdap('userFilter', event.target.value)} className="field-input font-mono" /></label><div className="grid gap-3 sm:grid-cols-3"><label><span className="field-label">Username attr.</span><input value={ldap.usernameAttribute} onChange={(event) => updateLdap('usernameAttribute', event.target.value)} className="field-input font-mono" /></label><label><span className="field-label">Display attr.</span><input value={ldap.displayNameAttribute} onChange={(event) => updateLdap('displayNameAttribute', event.target.value)} className="field-input font-mono" /></label><label><span className="field-label">Email attr.</span><input value={ldap.emailAttribute} onChange={(event) => updateLdap('emailAttribute', event.target.value)} className="field-input font-mono" /></label></div><SettingToggle label="Verify TLS certificate" detail="Recommended for LDAPS and organization CAs." value={ldap.verifyTlsCertificate} onChange={(value) => updateLdap('verifyTlsCertificate', value)} testId="toggle-ldap-tls" />
+      <div className="mt-4 rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 space-y-3">
+        <SettingToggle label="Enable directory auto-sync" detail="Periodically synchronize groups and computers." value={ldap.directoryAutoSyncEnabled} onChange={(value) => updateLdap('directoryAutoSyncEnabled', value)} testId="toggle-auto-sync" />
+        <label className="block"><span className="field-label">Sync frequency (minutes)</span><input type="number" min="1" max="1440" required value={ldap.directorySyncIntervalMinutes} onChange={(event) => updateLdap('directorySyncIntervalMinutes', Number(event.target.value))} className="field-input font-mono" /></label>
+      </div>
+      <Button type="submit" disabled={busy}><Save size={14} />Save LDAP settings</Button></form><form onSubmit={testLdap} className="mt-5 space-y-3 border-t border-[#e7ece7] pt-4"><div className="text-xs font-extrabold text-[#38534a]">Connection diagnostic</div><div className="grid gap-3 sm:grid-cols-2"><input required placeholder="Test username" value={ldapTest.username} onChange={(event) => setLdapTest((current) => ({ ...current, username: event.target.value }))} className="field-input" /><input required type="password" placeholder="Test password" value={ldapTest.password} onChange={(event) => setLdapTest((current) => ({ ...current, password: event.target.value }))} className="field-input" /></div><Button type="submit" variant="secondary" disabled={busy}>Test LDAP connection</Button></form></section>
+    </div>
+    <div className="flex flex-col gap-6">
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><Server size={18} /></div>
+          <div><h2 className="text-sm font-extrabold text-[#284139]">Directory cache</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">Clients and policy editing use the cache only; there are no live LDAP queries during operation.</p></div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 mb-4">
+          <div className="rounded-lg bg-[#f5f8f3] p-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Cached active groups</div>
+            <div className="mt-2 font-mono text-xl font-bold text-[#39514d]">{activeGroupCount}</div>
+          </div>
+          <div className="rounded-lg bg-[#f5f8f3] p-3">
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Cached computers</div>
+            <div className="mt-2 font-mono text-xl font-bold text-[#39514d]">{enabledComputerCount} <span className="text-sm font-normal text-[#87958e]">enabled</span></div>
+            <div className="mt-1 text-[10px] text-[#87958e]">{disabledComputerCount} disabled</div>
+          </div>
+        </div>
+        <div className="space-y-2 mb-4 text-xs">
+          <div className="flex justify-between border-b border-[#edf0eb] pb-2"><span className="font-bold text-[#536b68]">Last successful sync</span><span className="font-mono text-[#39514d]">{formatTime(statusQuery.data?.lastSuccessfulSyncAt)}</span></div>
+          <div className="flex justify-between border-b border-[#edf0eb] pb-2"><span className="font-bold text-[#536b68]">Last attempt</span><span className="font-mono text-[#39514d]">{formatTime(statusQuery.data?.lastAttemptAt)}</span></div>
+          {statusQuery.data?.lastError && <div className="rounded bg-[#fff0d5] p-2 text-[11px] text-[#8a5a08]">{statusQuery.data.lastError}</div>}
+        </div>
+        {syncFeedback && <div className="mb-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{syncFeedback}</div>}
+        <Button onClick={handleSyncLdap} disabled={syncMutation.isPending}><RefreshCw size={14} className={syncMutation.isPending ? 'animate-spin' : ''} /> {syncMutation.isPending ? 'Synchronizing...' : 'Sync Active Directory'}</Button>
+      </section>
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><ShieldCheck size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Organization PKI / HTTPS</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">PEM material is validated, matched, and encrypted at rest for Kubernetes-safe persistence.</p></div></div><form onSubmit={saveSsl} className="space-y-3"><label className="block"><span className="field-label">Certificate PEM</span><textarea required={ !ssl.certificateInstalled } value={certificatePem} onChange={(event) => setCertificatePem(event.target.value)} placeholder={ssl.certificateInstalled ? 'Leave blank to keep the installed certificate' : '-----BEGIN CERTIFICATE-----'} className="field-input min-h-28 font-mono text-[10px]" /><input type="file" accept=".pem,.crt,.cer" onChange={readPem(setCertificatePem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><label className="block"><span className="field-label">Private key PEM</span><textarea required={!ssl.privateKeyInstalled} value={privateKeyPem} onChange={(event) => setPrivateKeyPem(event.target.value)} placeholder={ssl.privateKeyInstalled ? 'Leave blank to keep the installed private key' : '-----BEGIN PRIVATE KEY-----'} className="field-input min-h-28 font-mono text-[10px]" /><input type="file" accept=".pem,.key" onChange={readPem(setPrivateKeyPem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><label className="block"><span className="field-label">Certificate chain PEM <span className="font-normal normal-case">(optional)</span></span><textarea value={chainPem} onChange={(event) => setChainPem(event.target.value)} placeholder="-----BEGIN CERTIFICATE-----" className="field-input min-h-20 font-mono text-[10px]" /><input type="file" accept=".pem,.crt,.cer" onChange={readPem(setChainPem)} className="mt-2 block w-full text-[10px] text-[#71817c]" /></label><div className="rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 text-xs text-[#536b68]"><div className="flex items-center justify-between"><span>Certificate</span><StatusPill value={ssl.certificateInstalled ? 'installed' : 'missing'} kind={ssl.certificateInstalled ? 'success' : 'warning'} /></div>{ssl.certificateSubject && <div className="mt-2 truncate font-mono text-[10px]">{ssl.certificateSubject}</div>}{ssl.certificateExpiresAt && <div className="mt-1 font-mono text-[10px]">Expires {formatTime(ssl.certificateExpiresAt)}</div>}</div><SettingToggle label="Activate HTTPS" detail="Serve the API over the uploaded certificate and redirect HTTP requests." value={ssl.forceHttps} onChange={(value) => setSsl((current) => ({ ...current, forceHttps: value }))} testId="toggle-force-https" /><SettingToggle label="Enable HSTS" detail="Only enable after HTTPS is confirmed reachable." value={ssl.hstsEnabled} onChange={(value) => setSsl((current) => ({ ...current, hstsEnabled: value }))} testId="toggle-hsts" /><Button type="submit" disabled={busy}><Upload size={14} />Save certificate settings</Button></form></section>
+    </div>
   </div></div>;
 }
 

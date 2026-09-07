@@ -37,5 +37,6 @@ export interface SoftwarePolicyInput {
   launchOnExitUpdateMode?: boolean;
   launchExecutablePath?: string;
   launchArguments?: string;
+  targetAdGroupIds?: string[];
   enabled: boolean;
 }

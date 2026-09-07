@@ -1,11 +1,12 @@
 import { createPrivateKey, createPublicKey, X509Certificate, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
+import { db, directoryCacheStatusTable, directoryComputersTable, directoryGroupsTable, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
+import { desc } from "drizzle-orm";
 import { requireAdmin } from "./auth";
 import { encryptSecret } from "../lib/secret-crypto";
 import { materializeTlsCredentials, usesProxyTlsTermination } from "../lib/ssl";
-import { testLdapConnection } from "../lib/ldap";
+import { syncDirectoryCache, testLdapConnection } from "../lib/ldap";
 
 const router: IRouter = Router();
 const SETTINGS_ID = "default";
@@ -17,6 +18,9 @@ function ldapDto(row: typeof ldapSettingsTable.$inferSelect | undefined) {
     bindDn: row?.bindDn ?? "",
     bindPasswordSet: Boolean(row?.bindPasswordEncrypted),
     baseDn: row?.baseDn ?? "",
+    computerBaseDn: row?.computerBaseDn ?? "",
+    directoryAutoSyncEnabled: row?.directoryAutoSyncEnabled ?? false,
+    directorySyncIntervalMinutes: row?.directorySyncIntervalMinutes ?? 60,
     userFilter: row?.userFilter ?? "(&(objectClass=person)(sAMAccountName={{username}}))",
     usernameAttribute: row?.usernameAttribute ?? "sAMAccountName",
     displayNameAttribute: row?.displayNameAttribute ?? "displayName",
@@ -39,6 +43,9 @@ router.put("/settings/ldap", requireAdmin, async (req, res): Promise<void> => {
     url: typeof body.url === "string" ? body.url.trim() : "",
     bindDn: typeof body.bindDn === "string" ? body.bindDn.trim() : "",
     baseDn: typeof body.baseDn === "string" ? body.baseDn.trim() : "",
+    computerBaseDn: typeof body.computerBaseDn === "string" ? body.computerBaseDn.trim() : "",
+    directoryAutoSyncEnabled: Boolean(body.directoryAutoSyncEnabled),
+    directorySyncIntervalMinutes: Number.isInteger(body.directorySyncIntervalMinutes) && body.directorySyncIntervalMinutes >= 1 && body.directorySyncIntervalMinutes <= 1440 ? body.directorySyncIntervalMinutes : 60,
     userFilter: typeof body.userFilter === "string" && body.userFilter.trim() ? body.userFilter.trim() : "(&(objectClass=person)(sAMAccountName={{username}}))",
     usernameAttribute: typeof body.usernameAttribute === "string" && body.usernameAttribute.trim() ? body.usernameAttribute.trim() : "sAMAccountName",
     displayNameAttribute: typeof body.displayNameAttribute === "string" && body.displayNameAttribute.trim() ? body.displayNameAttribute.trim() : "displayName",
@@ -55,6 +62,24 @@ router.put("/settings/ldap", requireAdmin, async (req, res): Promise<void> => {
     .onConflictDoUpdate({ target: ldapSettingsTable.id, set: { ...values, bindPasswordEncrypted: bindPassword, caCertificatePem, updatedAt: new Date() } })
     .returning();
   res.json(ldapDto(row));
+});
+
+router.post("/settings/ldap/directory/sync", requireAdmin, async (_req, res): Promise<void> => {
+  try { await syncDirectoryCache(); } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : "Directory sync failed." }); return;
+  }
+  const [status] = await db.select().from(directoryCacheStatusTable).where(eq(directoryCacheStatusTable.id, SETTINGS_ID)).limit(1);
+  res.json(status ?? { id: SETTINGS_ID, lastSuccessfulSyncAt: null, lastAttemptAt: null, lastError: null });
+});
+router.get("/settings/ldap/directory/status", requireAdmin, async (_req, res): Promise<void> => {
+  const [status] = await db.select().from(directoryCacheStatusTable).where(eq(directoryCacheStatusTable.id, SETTINGS_ID)).limit(1);
+  res.json(status ?? { id: SETTINGS_ID, lastSuccessfulSyncAt: null, lastAttemptAt: null, lastError: null });
+});
+router.get("/settings/ldap/directory/groups", requireAdmin, async (_req, res): Promise<void> => {
+  res.json(await db.select().from(directoryGroupsTable).orderBy(desc(directoryGroupsTable.name)));
+});
+router.get("/settings/ldap/directory/computers", requireAdmin, async (_req, res): Promise<void> => {
+  res.json(await db.select().from(directoryComputersTable).orderBy(desc(directoryComputersTable.hostname)));
 });
 
 router.post("/settings/ldap/test", requireAdmin, async (req, res): Promise<void> => {

@@ -1,13 +1,17 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, count, countDistinct, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   apiKeyRevealAuditsTable,
   auditEntriesTable,
   clientsTable,
+  directoryComputerGroupsTable,
+  directoryComputersTable,
+  directoryGroupsTable,
   serverSettingsTable,
   softwarePoliciesTable,
+  softwarePolicyTargetGroupsTable,
 } from "@workspace/db";
 import type { SoftwarePolicy as DbSoftwarePolicy } from "@workspace/db";
 import { decryptSecret, encryptSecret } from "../lib/secret-crypto";
@@ -114,11 +118,11 @@ async function requireHostnameForClient(clientId: string, req: Request, res: Res
     return false;
   }
   const [client] = await db
-    .select({ id: clientsTable.id, status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
+    .select({ id: clientsTable.id, hostname: clientsTable.hostname, status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
     .from(clientsTable)
-    .where(and(eq(clientsTable.id, clientId), eq(clientsTable.hostname, hostname)))
+    .where(eq(clientsTable.id, clientId))
     .limit(1);
-  if (!client) {
+  if (!client || client.hostname.trim().toLowerCase() !== hostname.toLowerCase()) {
     res.status(403).json({ error: "Client hostname does not match the enrolled client" });
     return false;
   }
@@ -143,6 +147,25 @@ function toApiPolicy(policy: DbSoftwarePolicy) {
     ? policy.iniChecks
     : policy.iniRules.map((rule) => ({ filePath: "", ...rule })));
   return { ...policy, supervisedExecutables: policy.supervisedExecutables ?? [], exeChecks, iniChecks };
+}
+
+async function targetIdsByPolicy(policyIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (!policyIds.length) return result;
+  const rows = await db.select().from(softwarePolicyTargetGroupsTable).where(inArray(softwarePolicyTargetGroupsTable.policyId, policyIds));
+  for (const row of rows) result.set(row.policyId, [...(result.get(row.policyId) ?? []), row.groupId]);
+  return result;
+}
+async function validateTargetGroups(ids: string[]): Promise<string[] | null> {
+  const normalized = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (normalized.length !== ids.length) return null;
+  if (!normalized.length) return normalized;
+  const groups = await db.select({ id: directoryGroupsTable.id }).from(directoryGroupsTable).where(and(inArray(directoryGroupsTable.id, normalized), eq(directoryGroupsTable.active, true)));
+  return groups.length === normalized.length ? normalized : null;
+}
+function clientPolicy(policy: ReturnType<typeof toApiPolicy>) {
+  const { targetAdGroupIds: _targets, ...contract } = policy as ReturnType<typeof toApiPolicy> & { targetAdGroupIds?: string[] };
+  return contract;
 }
 
 router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
@@ -217,20 +240,29 @@ async function sendSyncConfig(clientId: string, req: Request, res: Response, rec
     res.status(404).json({ error: "Server settings not found" });
     return;
   }
-  const [client] = await db.select({ id: clientsTable.id }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+  const [client] = await db.select({ id: clientsTable.id, hostname: clientsTable.hostname }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
   if (!client) {
     res.status(404).json({ error: "Client not found" });
     return;
   }
   const policies = await db.select().from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
-  const applicationUpdateMode = policies.some((policy) => policy.updateMode);
+  const targets = await targetIdsByPolicy(policies.map((policy) => policy.id));
+  const hostname = client.hostname.trim().toLowerCase().replace(/\.$/, "").split(".")[0]!.replace(/\$$/, "");
+  const [computer] = await db.select().from(directoryComputersTable).where(eq(directoryComputersTable.hostname, hostname)).limit(1);
+  const memberships = computer?.enabled ? new Set((await db.select().from(directoryComputerGroupsTable).where(eq(directoryComputerGroupsTable.computerId, computer.id))).map((row) => row.groupId)) : new Set<string>();
+  const activeGroups = new Set((await db.select({ id: directoryGroupsTable.id }).from(directoryGroupsTable).where(eq(directoryGroupsTable.active, true))).map((row) => row.id));
+  const effectivePolicies = policies.filter((policy) => {
+    const ids = targets.get(policy.id) ?? [];
+    return !ids.length || ids.some((id) => activeGroups.has(id) && memberships.has(id));
+  });
+  const applicationUpdateMode = effectivePolicies.some((policy) => policy.updateMode);
   const syncIntervalSeconds = applicationUpdateMode ? 30 : 300;
   const etag = `"${createHash("sha256").update(JSON.stringify({
     syncConfigFormat: 3,
     syncIntervalSeconds,
     updateMode: applicationUpdateMode,
-    policies: policies.map((policy) => ({
-      ...toApiPolicy(policy),
+    policies: effectivePolicies.map((policy) => ({
+      ...clientPolicy(toApiPolicy({ ...policy, targetAdGroupIds: targets.get(policy.id) ?? [] } as DbSoftwarePolicy)),
       lastUpdated: policy.lastUpdated.toISOString(),
     })),
   })).digest("hex")}"`;
@@ -260,7 +292,7 @@ async function sendSyncConfig(clientId: string, req: Request, res: Response, rec
     syncIntervalSeconds,
     configVersion: etag.slice(1, -1),
     updateMode: applicationUpdateMode,
-    policies: policies.map(toApiPolicy),
+    policies: effectivePolicies.map((policy) => clientPolicy(toApiPolicy({ ...policy, targetAdGroupIds: targets.get(policy.id) ?? [] } as DbSoftwarePolicy))),
   });
   if (recordClientPoll) {
     const now = new Date();
@@ -291,7 +323,8 @@ router.get("/clients/:id/sync-config", requireAdmin, async (req, res): Promise<v
 
 router.get("/software", requireAdmin, async (_req, res): Promise<void> => {
   const policies = await db.select().from(softwarePoliciesTable).orderBy(desc(softwarePoliciesTable.lastUpdated));
-  res.json(ListSoftwareResponse.parse(policies.map(toApiPolicy)));
+  const targets = await targetIdsByPolicy(policies.map((policy) => policy.id));
+  res.json(ListSoftwareResponse.parse(policies.map((policy) => toApiPolicy({ ...policy, targetAdGroupIds: targets.get(policy.id) ?? [] } as DbSoftwarePolicy))));
 });
 
 router.post("/software", requireAdmin, async (req, res): Promise<void> => {
@@ -309,7 +342,10 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Relational comparison values must contain only numeric version components separated by dots." });
     return;
   }
-  const [policy] = await db.insert(softwarePoliciesTable).values({
+  const targetAdGroupIds = await validateTargetGroups(parsed.data.targetAdGroupIds ?? []);
+  if (!targetAdGroupIds) { res.status(400).json({ error: "Target AD groups must be unique active cached group IDs." }); return; }
+  const policy = await db.transaction(async (transaction) => {
+    const [created] = await transaction.insert(softwarePoliciesTable).values({
     id: `policy-${crypto.randomUUID()}`,
     name: parsed.data.name,
     executable: parsed.data.executable ?? exeChecks[0]?.executable ?? "-",
@@ -328,8 +364,11 @@ router.post("/software", requireAdmin, async (req, res): Promise<void> => {
     launchArguments: parsed.data.launchArguments ?? "",
     updateModeCycleId: `cycle-${crypto.randomUUID()}`,
     enabled: parsed.data.enabled,
-  }).returning();
-  res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy(policy)));
+    }).returning();
+    if (targetAdGroupIds.length) await transaction.insert(softwarePolicyTargetGroupsTable).values(targetAdGroupIds.map((groupId) => ({ policyId: created.id, groupId })));
+    return created;
+  });
+  res.status(201).json(CreateSoftwareResponse.parse(toApiPolicy({ ...policy, targetAdGroupIds } as DbSoftwarePolicy)));
 });
 
 router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
@@ -352,6 +391,8 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
     res.status(400).json({ error: "Relational comparison values must contain only numeric version components separated by dots." });
     return;
   }
+  const targetAdGroupIds = await validateTargetGroups(parsed.data.targetAdGroupIds ?? []);
+  if (!targetAdGroupIds) { res.status(400).json({ error: "Target AD groups must be unique active cached group IDs." }); return; }
   const policy = await db.transaction(async (transaction) => {
     const [current] = await transaction
       .select()
@@ -389,13 +430,17 @@ router.patch("/software/:id", requireAdmin, async (req, res): Promise<void> => {
       })
       .where(eq(softwarePoliciesTable.id, params.data.id))
       .returning();
+    if (updated) {
+      await transaction.delete(softwarePolicyTargetGroupsTable).where(eq(softwarePolicyTargetGroupsTable.policyId, updated.id));
+      if (targetAdGroupIds.length) await transaction.insert(softwarePolicyTargetGroupsTable).values(targetAdGroupIds.map((groupId) => ({ policyId: updated.id, groupId })));
+    }
     return updated ?? null;
   });
   if (!policy) {
     res.status(404).json({ error: "Software policy not found" });
     return;
   }
-  res.json(UpdateSoftwareResponse.parse(toApiPolicy(policy)));
+  res.json(UpdateSoftwareResponse.parse(toApiPolicy({ ...policy, targetAdGroupIds } as DbSoftwarePolicy)));
 });
 
 router.delete("/software/:id", requireAdmin, async (req, res): Promise<void> => {
@@ -404,7 +449,11 @@ router.delete("/software/:id", requireAdmin, async (req, res): Promise<void> => 
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [deleted] = await db.delete(softwarePoliciesTable).where(eq(softwarePoliciesTable.id, params.data.id)).returning();
+  const deleted = await db.transaction(async (transaction) => {
+    await transaction.delete(softwarePolicyTargetGroupsTable).where(eq(softwarePolicyTargetGroupsTable.policyId, params.data.id));
+    const [row] = await transaction.delete(softwarePoliciesTable).where(eq(softwarePoliciesTable.id, params.data.id)).returning();
+    return row;
+  });
   if (!deleted) {
     res.status(404).json({ error: "Software policy not found" });
     return;

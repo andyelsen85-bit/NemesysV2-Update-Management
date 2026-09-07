@@ -12,6 +12,13 @@ export interface LdapSettingsInput {
   bindDn: string;
   bindPassword?: string;
   baseDn: string;
+  computerBaseDn: string;
+  directoryAutoSyncEnabled: boolean;
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  directorySyncIntervalMinutes: number;
   userFilter: string;
   usernameAttribute: string;
   displayNameAttribute: string;

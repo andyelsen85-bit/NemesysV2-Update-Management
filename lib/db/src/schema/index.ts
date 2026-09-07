@@ -94,6 +94,9 @@ export const ldapSettingsTable = pgTable("nemesys_ldap_settings", {
   bindDn: text("bind_dn").notNull().default(""),
   bindPasswordEncrypted: text("bind_password_encrypted"),
   baseDn: text("base_dn").notNull().default(""),
+  computerBaseDn: text("computer_base_dn").notNull().default(""),
+  directoryAutoSyncEnabled: boolean("directory_auto_sync_enabled").notNull().default(false),
+  directorySyncIntervalMinutes: integer("directory_sync_interval_minutes").notNull().default(60),
   userFilter: text("user_filter").notNull().default("(&(objectClass=person)(sAMAccountName={{username}}))"),
   usernameAttribute: text("username_attribute").notNull().default("sAMAccountName"),
   displayNameAttribute: text("display_name_attribute").notNull().default("displayName"),
@@ -102,6 +105,42 @@ export const ldapSettingsTable = pgTable("nemesys_ldap_settings", {
   caCertificatePem: text("ca_certificate_pem"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const directoryCacheStatusTable = pgTable("nemesys_directory_cache_status", {
+  id: text("id").primaryKey(),
+  lastSuccessfulSyncAt: timestamp("last_successful_sync_at", { withTimezone: true }),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  lastError: text("last_error"),
+});
+
+export const directoryComputersTable = pgTable("nemesys_directory_computers", {
+  id: text("id").primaryKey(),
+  hostname: text("hostname").notNull(),
+  samAccountName: text("sam_account_name").notNull(),
+  dnsHostName: text("dns_host_name").notNull().default(""),
+  distinguishedName: text("distinguished_name").notNull(),
+  enabled: boolean("enabled").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({ hostnameUnique: unique().on(table.hostname) }));
+
+export const directoryGroupsTable = pgTable("nemesys_directory_groups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  samAccountName: text("sam_account_name").notNull().default(""),
+  distinguishedName: text("distinguished_name").notNull(),
+  active: boolean("active").notNull().default(true),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const directoryComputerGroupsTable = pgTable("nemesys_directory_computer_groups", {
+  computerId: text("computer_id").notNull().references(() => directoryComputersTable.id, { onDelete: "cascade" }),
+  groupId: text("group_id").notNull().references(() => directoryGroupsTable.id, { onDelete: "cascade" }),
+}, (table) => ({ computerGroupUnique: unique().on(table.computerId, table.groupId) }));
+
+export const softwarePolicyTargetGroupsTable = pgTable("nemesys_software_policy_target_groups", {
+  policyId: text("policy_id").notNull().references(() => softwarePoliciesTable.id, { onDelete: "cascade" }),
+  groupId: text("group_id").notNull().references(() => directoryGroupsTable.id),
+}, (table) => ({ policyGroupUnique: unique().on(table.policyId, table.groupId) }));
 
 export const sslSettingsTable = pgTable("nemesys_ssl_settings", {
   id: text("id").primaryKey(),

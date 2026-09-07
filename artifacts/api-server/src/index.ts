@@ -3,6 +3,7 @@ import { ensureSeedData } from "./lib/seed";
 import { ensureDatabaseSchema } from "@workspace/db";
 import { startRuntimeServer } from "./runtime-server";
 import { materializeTlsCredentials } from "./lib/ssl";
+import { startDirectoryAutoSyncScheduler } from "./lib/ldap";
 
 const rawPort = process.env["PORT"];
 
@@ -22,6 +23,7 @@ try {
   await ensureDatabaseSchema();
   await ensureSeedData();
   await materializeTlsCredentials();
+  startDirectoryAutoSyncScheduler();
 } catch (error) {
   const hasMissingRelation = (value: unknown): boolean => {
     let current = value;

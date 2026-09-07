@@ -154,6 +154,8 @@ export interface SoftwarePolicy {
   launchArguments: string;
   /** Server-generated identifier for the current Update Mode cycle. */
   updateModeCycleId: string;
+  /** Cached AD group IDs targeted by this policy. Empty targets all computers. */
+  targetAdGroupIds?: string[];
   enabled: boolean;
   lastUpdated: string;
 }
@@ -194,6 +196,7 @@ export interface SoftwarePolicyInput {
   launchOnExitUpdateMode?: boolean;
   launchExecutablePath?: string;
   launchArguments?: string;
+  targetAdGroupIds?: string[];
   enabled: boolean;
 }
 
@@ -289,6 +292,13 @@ export interface LdapSettings {
   bindDn: string;
   bindPasswordSet: boolean;
   baseDn: string;
+  computerBaseDn: string;
+  directoryAutoSyncEnabled: boolean;
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  directorySyncIntervalMinutes: number;
   userFilter: string;
   usernameAttribute: string;
   displayNameAttribute: string;
@@ -303,6 +313,13 @@ export interface LdapSettingsInput {
   bindDn: string;
   bindPassword?: string;
   baseDn: string;
+  computerBaseDn: string;
+  directoryAutoSyncEnabled: boolean;
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  directorySyncIntervalMinutes: number;
   userFilter: string;
   usernameAttribute: string;
   displayNameAttribute: string;
@@ -314,6 +331,35 @@ export interface LdapSettingsInput {
 export interface LdapTestInput {
   username: string;
   password: string;
+}
+
+export interface DirectoryCacheStatus {
+  id: string;
+  /** @nullable */
+  lastSuccessfulSyncAt: string | null;
+  /** @nullable */
+  lastAttemptAt: string | null;
+  /** @nullable */
+  lastError: string | null;
+}
+
+export interface DirectoryGroup {
+  id: string;
+  name: string;
+  samAccountName: string;
+  distinguishedName: string;
+  active: boolean;
+  syncedAt: string;
+}
+
+export interface DirectoryComputer {
+  id: string;
+  hostname: string;
+  samAccountName: string;
+  dnsHostName: string;
+  distinguishedName: string;
+  enabled: boolean;
+  syncedAt: string;
 }
 
 export type LdapDiagnosticStage = typeof LdapDiagnosticStage[keyof typeof LdapDiagnosticStage];

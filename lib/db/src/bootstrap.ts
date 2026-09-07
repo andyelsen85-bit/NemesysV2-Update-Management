@@ -48,6 +48,9 @@ const schemaStatements = [
     bind_dn text DEFAULT '' NOT NULL,
     bind_password_encrypted text,
     base_dn text DEFAULT '' NOT NULL,
+    computer_base_dn text DEFAULT '' NOT NULL,
+    directory_auto_sync_enabled boolean DEFAULT false NOT NULL,
+    directory_sync_interval_minutes integer DEFAULT 60 NOT NULL,
     user_filter text DEFAULT '(&(objectClass=person)(sAMAccountName={{username}}))' NOT NULL,
     username_attribute text DEFAULT 'sAMAccountName' NOT NULL,
     display_name_attribute text DEFAULT 'displayName' NOT NULL,
@@ -55,6 +58,26 @@ const schemaStatements = [
     verify_tls_certificate boolean DEFAULT true NOT NULL,
     ca_certificate_pem text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_directory_cache_status (
+    id text PRIMARY KEY NOT NULL, last_successful_sync_at timestamp with time zone,
+    last_attempt_at timestamp with time zone, last_error text
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_directory_computers (
+    id text PRIMARY KEY NOT NULL, hostname text NOT NULL UNIQUE, sam_account_name text NOT NULL,
+    dns_host_name text DEFAULT '' NOT NULL, distinguished_name text NOT NULL, enabled boolean NOT NULL,
+    synced_at timestamp with time zone DEFAULT now() NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_directory_groups (
+    id text PRIMARY KEY NOT NULL, name text NOT NULL, sam_account_name text DEFAULT '' NOT NULL,
+    distinguished_name text NOT NULL, active boolean DEFAULT true NOT NULL,
+    synced_at timestamp with time zone DEFAULT now() NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_directory_computer_groups (
+    computer_id text NOT NULL, group_id text NOT NULL, UNIQUE(computer_id, group_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_software_policy_target_groups (
+    policy_id text NOT NULL, group_id text NOT NULL, UNIQUE(policy_id, group_id)
   )`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_server_settings (
     id text PRIMARY KEY NOT NULL,
@@ -102,12 +125,39 @@ const schemaStatements = [
     hsts_enabled boolean DEFAULT false NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
   )`,
+  `DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_directory_computer_groups_computer_fk') THEN
+      ALTER TABLE public.nemesys_directory_computer_groups
+        ADD CONSTRAINT nemesys_directory_computer_groups_computer_fk
+        FOREIGN KEY (computer_id) REFERENCES public.nemesys_directory_computers(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_directory_computer_groups_group_fk') THEN
+      ALTER TABLE public.nemesys_directory_computer_groups
+        ADD CONSTRAINT nemesys_directory_computer_groups_group_fk
+        FOREIGN KEY (group_id) REFERENCES public.nemesys_directory_groups(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_software_policy_target_groups_policy_fk') THEN
+      ALTER TABLE public.nemesys_software_policy_target_groups
+        ADD CONSTRAINT nemesys_software_policy_target_groups_policy_fk
+        FOREIGN KEY (policy_id) REFERENCES public.nemesys_software_policies(id) ON DELETE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_software_policy_target_groups_group_fk') THEN
+      ALTER TABLE public.nemesys_software_policy_target_groups
+        ADD CONSTRAINT nemesys_software_policy_target_groups_group_fk
+        FOREIGN KEY (group_id) REFERENCES public.nemesys_directory_groups(id);
+    END IF;
+  END $$`,
   `ALTER TABLE public.nemesys_clients
     ADD COLUMN IF NOT EXISTS last_poll timestamp with time zone,
     ADD COLUMN IF NOT EXISTS last_successful_sync timestamp with time zone,
     ADD COLUMN IF NOT EXISTS installed_version text`,
   `ALTER TABLE public.nemesys_server_settings
     ADD COLUMN IF NOT EXISTS desired_client_version text NOT NULL DEFAULT '1.0.0'`,
+  `ALTER TABLE public.nemesys_ldap_settings
+    ADD COLUMN IF NOT EXISTS computer_base_dn text NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS directory_auto_sync_enabled boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS directory_sync_interval_minutes integer NOT NULL DEFAULT 60`,
   `ALTER TABLE public.nemesys_software_policies
     ADD COLUMN IF NOT EXISTS allow_postpone boolean NOT NULL DEFAULT false`,
   `DO $$

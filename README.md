@@ -19,6 +19,7 @@ NemesysV2 is a centralized Windows software update-management platform. It combi
 - Launch an application once when a policy leaves Update Mode.
 - Store one latest audit result per client for current-state reporting.
 - Manage administrators, LDAP settings, TLS certificates, API keys, and server settings.
+- Cache paged Active Directory computer/group data and target policies to direct, nested, or primary group memberships without live LDAP queries during client sync.
 - Deploy the control plane as containerized Kubernetes workloads.
 - Build the x64 Windows client as a WiX MSI through GitHub Actions.
 
@@ -51,6 +52,7 @@ flowchart LR
     Client --> Apps[Managed applications<br/>EXE / INI checks]
 
     API --> TLS[Encrypted LDAP/TLS/API-key material]
+    API --> Directory[Cached Active Directory<br/>computers and groups]
     API --> Audit[Latest audit state per client]
 ```
 

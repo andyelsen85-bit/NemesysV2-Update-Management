@@ -39,6 +39,8 @@ export interface SoftwarePolicy {
   launchArguments: string;
   /** Server-generated identifier for the current Update Mode cycle. */
   updateModeCycleId: string;
+  /** Cached AD group IDs targeted by this policy. Empty targets all computers. */
+  targetAdGroupIds?: string[];
   enabled: boolean;
   lastUpdated: Date;
 }
