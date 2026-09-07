@@ -1,7 +1,7 @@
 import { createPrivateKey, createPublicKey, X509Certificate, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, directoryCacheStatusTable, directoryComputersTable, directoryGroupsTable, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
+import { db, directoryCacheStatusTable, directoryComputerGroupsTable, directoryComputersTable, directoryGroupsTable, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 import { requireAdmin } from "./auth";
 import { encryptSecret } from "../lib/secret-crypto";
@@ -76,7 +76,18 @@ router.get("/settings/ldap/directory/status", requireAdmin, async (_req, res): P
   res.json(status ?? { id: SETTINGS_ID, lastSuccessfulSyncAt: null, lastAttemptAt: null, lastError: null });
 });
 router.get("/settings/ldap/directory/groups", requireAdmin, async (_req, res): Promise<void> => {
-  res.json(await db.select().from(directoryGroupsTable).orderBy(desc(directoryGroupsTable.name)));
+  res.json(await db.selectDistinct({
+    id: directoryGroupsTable.id,
+    name: directoryGroupsTable.name,
+    samAccountName: directoryGroupsTable.samAccountName,
+    distinguishedName: directoryGroupsTable.distinguishedName,
+    active: directoryGroupsTable.active,
+    syncedAt: directoryGroupsTable.syncedAt,
+  })
+    .from(directoryGroupsTable)
+    .innerJoin(directoryComputerGroupsTable, eq(directoryComputerGroupsTable.groupId, directoryGroupsTable.id))
+    .where(eq(directoryGroupsTable.active, true))
+    .orderBy(desc(directoryGroupsTable.name)));
 });
 router.get("/settings/ldap/directory/computers", requireAdmin, async (_req, res): Promise<void> => {
   res.json(await db.select().from(directoryComputersTable).orderBy(desc(directoryComputersTable.hostname)));

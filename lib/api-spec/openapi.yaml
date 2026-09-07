@@ -366,7 +366,7 @@ paths:
       tags: [settings]
       summary: List cached Active Directory groups
       responses:
-        "200": { description: Cached groups, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/DirectoryGroup" } } } } }
+        "200": { description: "Active cached groups with at least one direct, nested, or primary computer membership", content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/DirectoryGroup" } } } } }
   /settings/ldap/directory/computers:
     get:
       operationId: listLdapDirectoryComputers
