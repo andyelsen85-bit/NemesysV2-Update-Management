@@ -25,7 +25,13 @@ Kubernetes deployments follow the Change Manager pattern: the web Service expose
 
 **Why:** This environment exposes application Services directly rather than using Kubernetes Ingress. The console must remain reachable on 443 while Nginx proxies API traffic to the HTTP API sidecar.
 
-**How to apply:** Keep ports 80/443 on the web Service, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.
+**How to apply:** Keep ports 80/443 on the web Service, but map them to unprivileged console container ports 8080/8443. Run Nginx as UID/GID 10001 with its PID and temporary paths under `/tmp`, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.
+
+The API's Pino esbuild integration embeds the build-stage absolute output directory when resolving its emitted worker modules.
+
+**Why:** Moving only the bundled API output to a different runtime working directory leaves the worker files present but makes Pino look for them at the original build path, causing a startup `MODULE_NOT_FOUND`.
+
+**How to apply:** Build and run the API image under the same `/workspace/artifacts/api-server` path, and copy the complete `dist` directory there rather than relocating only `index.mjs`.
 
 Windows clients require an absolute HTTPS control-plane endpoint and use the Local Computer certificate trust store. Expired, untrusted, and hostname-mismatched certificates are rejected.
 

@@ -17,12 +17,12 @@ FROM node:24-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
 ENV PORT=8081
-WORKDIR /app
+WORKDIR /workspace/artifacts/api-server
 
 RUN groupadd --system --gid 10001 nemesys \
-  && useradd --system --uid 10001 --gid 10001 --home-dir /app nemesys
+  && useradd --system --uid 10001 --gid 10001 --home-dir /workspace/artifacts/api-server nemesys
 
-COPY --from=build --chown=nemesys:nemesys /workspace/artifacts/api-server/dist ./dist
+COPY --from=build --chown=nemesys:nemesys /workspace/artifacts/api-server/dist /workspace/artifacts/api-server/dist
 
 USER nemesys
 EXPOSE 8081

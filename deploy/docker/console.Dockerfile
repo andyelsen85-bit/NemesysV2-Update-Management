@@ -19,11 +19,13 @@ FROM nginx:1.27-alpine AS runtime
 
 RUN apk add --no-cache openssl inotify-tools
 
+COPY deploy/docker/nginx-main.conf /etc/nginx/nginx.conf
 COPY deploy/docker/nginx-console.conf /etc/nginx/conf.d/default.conf
 COPY deploy/docker/nginx-console-entrypoint.sh /usr/local/bin/nemesys-console
-COPY --from=build /workspace/artifacts/nemesys-console/dist/public /usr/share/nginx/html
+COPY --from=build --chown=10001:10001 /workspace/artifacts/nemesys-console/dist/public /usr/share/nginx/html
 
 RUN chmod 0755 /usr/local/bin/nemesys-console
 
-EXPOSE 80 443
+USER 10001:10001
+EXPOSE 8080 8443
 ENTRYPOINT ["/usr/local/bin/nemesys-console"]
