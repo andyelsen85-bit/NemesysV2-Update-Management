@@ -36,6 +36,7 @@ export * from './exeCheck';
 export * from './getSyncConfigParams';
 export * from './healthStatus';
 export * from './ifNoneMatchParameter';
+export * from './inactiveClientsDeletionResult';
 export * from './iniCheck';
 export * from './iniRule';
 export * from './ldapDiagnostic';

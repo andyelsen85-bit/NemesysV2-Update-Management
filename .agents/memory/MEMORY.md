@@ -7,5 +7,6 @@
 - [Automatic schema upgrades](automatic-schema-upgrades.md) — API startup owns idempotent policy-contract upgrades under a PostgreSQL advisory lock.
 - [Comparison-operator rollout](comparison-operator-rollout.md) — deploy operator-aware Windows clients before configuring relational EXE or INI checks.
 - [Client version baseline](client-version-baseline.md) — reported client versions use minimum-baseline semantics; unknown versions remain distinct from outdated ones.
+- [Inactive client lifecycle](inactive-client-lifecycle.md) — clients become stale after 72 hours; cleanup preserves revoked tombstones and supports automatic re-enrollment.
 - [API key disclosure auditing](api-key-disclosure-auditing.md) — plaintext client API keys are explicit, no-store disclosures recorded with the administrator identity.
 - [Active Directory policy targeting](active-directory-policy-targeting.md) — target only from a durable paged cache; preserve immutable AD identity and fail closed for stale or unmatched computers.

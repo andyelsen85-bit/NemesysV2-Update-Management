@@ -49,6 +49,19 @@ export const ListClientsResponse = zod.array(ListClientsResponseItem)
 
 
 /**
+ * @summary Delete all clients inactive for at least 72 hours
+ */
+export const deleteInactiveClientsResponseDeletedClientsMin = 0;
+
+
+
+export const DeleteInactiveClientsResponse = zod.object({
+  "deletedClients": zod.number().min(deleteInactiveClientsResponseDeletedClientsMin),
+  "cutoff": zod.coerce.date()
+})
+
+
+/**
  * @summary Block a client from synchronization access
  */
 export const RevokeClientParams = zod.object({

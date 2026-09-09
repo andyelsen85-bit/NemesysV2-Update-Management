@@ -63,6 +63,17 @@ internal sealed class SyncWorker(ClientConfiguration configuration, ILogger<Sync
             {
                 return;
             }
+            catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                logger.LogWarning(
+                    "The server no longer has an enrollment for {Hostname}; enrolling again",
+                    configuration.Hostname);
+                clientId = null;
+                syncEtag = null;
+                cachedSyncConfig = null;
+                lastReportedCompliance.Clear();
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
             catch (Exception exception)
             {
                 logger.LogError(

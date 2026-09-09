@@ -81,6 +81,12 @@ export interface Client {
   certificateStatus: ClientCertificateStatus;
 }
 
+export interface InactiveClientsDeletionResult {
+  /** @minimum 0 */
+  deletedClients: number;
+  cutoff: string;
+}
+
 export interface IniRule {
   section: string;
   key: string;

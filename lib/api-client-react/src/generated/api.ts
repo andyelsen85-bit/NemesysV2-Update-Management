@@ -40,6 +40,7 @@ import type {
   DirectoryGroup,
   GetSyncConfigParams,
   HealthStatus,
+  InactiveClientsDeletionResult,
   LdapDiagnostic,
   LdapSettings,
   LdapSettingsInput,
@@ -313,6 +314,77 @@ export function useListClients<TData = Awaited<ReturnType<typeof listClients>>, 
 
 
 
+
+export const getDeleteInactiveClientsUrl = () => {
+
+
+
+
+  return `/api/clients/inactive`
+}
+
+/**
+ * @summary Delete all clients inactive for at least 72 hours
+ */
+export const deleteInactiveClients = async ( options?: Parameters<typeof customFetch>[1]): Promise<InactiveClientsDeletionResult> => {
+
+  return customFetch<InactiveClientsDeletionResult>(getDeleteInactiveClientsUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteInactiveClientsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteInactiveClients>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteInactiveClients>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteInactiveClients'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteInactiveClients>>, void> = () => {
+
+
+          return  deleteInactiveClients(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteInactiveClientsMutationResult = NonNullable<Awaited<ReturnType<typeof deleteInactiveClients>>>
+
+    export type DeleteInactiveClientsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete all clients inactive for at least 72 hours
+ */
+export const useDeleteInactiveClients = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteInactiveClients>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteInactiveClients>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteInactiveClientsMutationOptions(options));
+    }
 
 export const getRevokeClientUrl = (id: string,) => {
 

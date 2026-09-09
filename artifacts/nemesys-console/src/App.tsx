@@ -12,7 +12,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/
 import {
   getGetClientSyncConfigQueryKey, getGetDashboardQueryKey, getGetServerSettingsQueryKey,
   getListAuditEntriesQueryKey, getListClientsQueryKey,
-  getListSoftwareQueryKey, useCreateSoftware, useDeleteSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
+  getListSoftwareQueryKey, useCreateSoftware, useDeleteInactiveClients, useDeleteSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
   useGetClientSyncConfig, useHealthCheck, useListAuditEntries, useListClients, useListSoftware,
   useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware,
   useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey,
@@ -278,8 +278,8 @@ function OverviewPage() {
     <PageHeader eyebrow="Operational overview" title="System overview" detail="A precise read on the Windows estate, policy drift, and what needs your attention next." action={<Button variant="secondary" onClick={retry} disabled={anyLoading} data-testid="button-refresh-overview"><RefreshCw size={14} className={anyLoading ? 'animate-spin' : ''} /> Refresh data</Button>} />
     {dashboard.isError ? <ErrorState onRetry={retry} /> : anyLoading && !summary ? <LoadingRows count={5} /> : <>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Enrolled clients" value={summary?.totalClients ?? '—'} detail={`${summary?.onlineClients ?? 0} online right now`} icon={Laptop} tone="green" trend="up" />
-        <MetricCard label="Online coverage" value={summary && summary.totalClients ? `${Math.round((summary.onlineClients / summary.totalClients) * 100)}%` : '—'} detail="clients reporting within interval" icon={Wifi} tone="blue" />
+        <MetricCard label="Enrolled clients" value={summary?.totalClients ?? '—'} detail={`${summary?.onlineClients ?? 0} active within 72 hours`} icon={Laptop} tone="green" trend="up" />
+        <MetricCard label="Online coverage" value={summary && summary.totalClients ? `${Math.round((summary.onlineClients / summary.totalClients) * 100)}%` : '—'} detail="clients reporting in the last 72 hours" icon={Wifi} tone="blue" />
         <MetricCard label="Protected software" value={summary?.protectedSoftware ?? '—'} detail="active enforcement policies" icon={ShieldCheck} tone="amber" />
         <MetricCard label="Clients reported today" value={summary?.syncsToday ?? '—'} detail={summary?.latestSync ? `last report ${relativeTime(summary.latestSync)}` : 'No report recorded'} icon={Activity} tone="slate" trend="up" />
       </section>
@@ -349,6 +349,7 @@ function compareVersionValues(first: string | null | undefined, second: string |
 
 function ClientsPage() {
   const query = useListClients();
+  const deleteInactive = useDeleteInactiveClients();
   const revoke = useRevokeClient();
   const reactivate = useReactivateClient();
   const clientList = listData<Client>(query.data, 'clients');
@@ -356,6 +357,8 @@ function ClientsPage() {
   const [sortField, setSortField] = useState('hostname');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selected, setSelected] = useState<Client | null>(null);
+  const [feedback, setFeedback] = useState('');
+  const inactiveClients = clientList.filter((client) => client.status === 'stale');
 
   const handleSort = (field: string) => {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -383,7 +386,24 @@ function ClientsPage() {
 
   const clientId = useMemo(() => selected?.id ?? '', [selected?.id]);
   const config = useGetClientSyncConfig(clientId, { query: { enabled: Boolean(selected), queryKey: getGetClientSyncConfigQueryKey(clientId) } });
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: getListClientsQueryKey() });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getListClientsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAuditEntriesQueryKey() });
+  };
+  const removeInactiveClients = () => {
+    if (!inactiveClients.length) return;
+    if (!window.confirm(`Permanently delete ${inactiveClients.length} client${inactiveClients.length === 1 ? '' : 's'} that have not reported for at least 72 hours? Their latest audit entries will also be deleted. If those machines reconnect, they will enroll again automatically.`)) return;
+    setFeedback('');
+    deleteInactive.mutate(undefined, {
+      onSuccess: (result) => {
+        setSelected(null);
+        setFeedback(`${result.deletedClients} inactive client${result.deletedClients === 1 ? '' : 's'} deleted.`);
+        invalidate();
+      },
+      onError: () => setFeedback('Unable to delete inactive clients.'),
+    });
+  };
   const changeClientAccess = (client: Client) => {
     const isBlocked = client.status === 'revoked';
     const prompt = isBlocked
@@ -399,8 +419,9 @@ function ClientsPage() {
     });
   };
   return <div className="mx-auto max-w-[1380px]">
-    <PageHeader eyebrow="Estate inventory" title="Clients" detail="Every enrolled Windows service, identified by hostname, with its latest signal and access state." action={<Button onClick={() => query.refetch()} variant="secondary" disabled={query.isFetching} data-testid="button-refresh-clients"><RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} /> Refresh</Button>} />
-    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search clients" data-testid="input-search-clients" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, hostname, address, status, or timestamps" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{clientList.length}</span> enrolled <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#2c785b]">{clientList.filter((c) => c.status === 'online').length}</span> online</div></div>
+    <PageHeader eyebrow="Estate inventory" title="Clients" detail="Every enrolled Windows service, identified by hostname, with its latest signal and access state." action={<div className="flex flex-wrap gap-2"><Button onClick={removeInactiveClients} variant="danger" disabled={!inactiveClients.length || deleteInactive.isPending} data-testid="button-delete-inactive-clients"><Trash2 size={14} /> {deleteInactive.isPending ? 'Deleting…' : 'Delete inactive clients'}</Button><Button onClick={() => query.refetch()} variant="secondary" disabled={query.isFetching} data-testid="button-refresh-clients"><RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} /> Refresh</Button></div>} />
+    {feedback && <div role="status" className="mb-4 rounded-lg border border-[#d7e5dc] bg-[#eef7f1] px-4 py-3 text-xs font-semibold text-[#356450]">{feedback}</div>}
+    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search clients" data-testid="input-search-clients" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, hostname, address, status, or timestamps" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{clientList.length}</span> enrolled <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#2c785b]">{clientList.filter((c) => c.status === 'online').length}</span> online <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#94661a]">{inactiveClients.length}</span> inactive</div></div>
     {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : filtered.length === 0 ? <EmptyState icon={Laptop} title={search ? 'No matching clients' : 'No clients enrolled'} detail={search ? 'Try a hostname, address, or a shorter name.' : 'Enroll a Windows service to begin receiving synchronization reports.'} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : undefined} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[1120px] grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Hostname" field="hostname" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Client version" field="installedVersion" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Network address" field="address" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last poll" field="lastPoll" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last full sync" field="lastSuccessfulSync" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Access" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} className="justify-end" /></div><div className="min-w-[1120px] divide-y divide-[#edf0eb]">{filtered.map((client) => { const isBlocked = client.status === 'revoked'; return <div key={client.id} data-testid={`row-client-${client.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7] md:grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] md:items-center md:gap-4"><button data-testid={`button-client-details-${client.id}`} onClick={() => setSelected(client)} className="flex min-w-0 items-center gap-3 text-left"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e3f0e9] text-[11px] font-extrabold text-[#2d7258]">{initials(client.hostname)}</div><div className="min-w-0"><div data-testid={`text-client-hostname-${client.id}`} className="truncate text-xs font-extrabold text-[#304b45]">{client.hostname}</div><div className="mt-1 truncate font-mono text-[10px] text-[#899992]">{client.name}</div></div></button><div className="font-mono text-[11px] text-[#536b68]">{client.installedVersion ?? <span className="italic text-[#9aa7a0]">Unknown</span>}</div><div className="font-mono text-[11px] text-[#536b68]">{client.address}</div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastPoll)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastPoll)}</div></div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastSuccessfulSync)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastSuccessfulSync)}</div></div><div className="flex items-center justify-end gap-1"><StatusPill value={client.status === 'online' ? 'access active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /><button aria-label={`Inspect ${client.hostname}`} data-testid={`button-inspect-client-${client.id}`} onClick={() => setSelected(client)} className="rounded-md p-2 text-[#79908a] hover:bg-[#e4eee8] hover:text-[#246d53]"><ChevronRight size={16} /></button><button aria-label={`${isBlocked ? 'Reactivate sync access' : 'Block sync access'} for ${client.hostname}`} data-testid={`button-${isBlocked ? 'reactivate' : 'block'}-client-${client.id}`} disabled={revoke.isPending || reactivate.isPending} onClick={() => changeClientAccess(client)} className={cx('rounded-md p-2', isBlocked ? 'text-[#34775e] hover:bg-[#e4eee8] hover:text-[#246d53]' : 'text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]')}>{isBlocked ? <ShieldCheck size={15} /> : <ShieldX size={15} />}</button></div></div>; })}</div></div>}
     {selected && <ClientModal client={selected} config={config.data} loading={config.isLoading} changingAccess={revoke.isPending || reactivate.isPending} onClose={() => setSelected(null)} onChangeAccess={() => changeClientAccess(selected)} />}
   </div>;

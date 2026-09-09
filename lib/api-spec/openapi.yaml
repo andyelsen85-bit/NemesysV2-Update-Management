@@ -64,6 +64,18 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Client"
+  /clients/inactive:
+    delete:
+      operationId: deleteInactiveClients
+      tags: [clients]
+      summary: Delete all clients inactive for at least 72 hours
+      responses:
+        "200":
+          description: Inactive clients and their latest audit entries were deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InactiveClientsDeletionResult"
   /clients/{id}/revoke:
     post:
       operationId: revokeClient
@@ -695,6 +707,16 @@ components:
         certificateStatus:
           type: string
           enum: [valid, expiring, revoked]
+    InactiveClientsDeletionResult:
+      type: object
+      required: [deletedClients, cutoff]
+      properties:
+        deletedClients:
+          type: number
+          minimum: 0
+        cutoff:
+          type: string
+          format: date-time
     IniRule:
       type: object
       required: [section, key, expectedValue]

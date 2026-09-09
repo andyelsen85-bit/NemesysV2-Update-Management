@@ -1,6 +1,6 @@
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
-import { and, count, countDistinct, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   apiKeyRevealAuditsTable,
@@ -19,6 +19,7 @@ import { getSessionUsername, requireAdmin } from "./auth";
 import {
   CreateSoftwareBody,
   CreateSoftwareResponse,
+  DeleteInactiveClientsResponse,
   DeleteSoftwareParams,
   GetDashboardResponse,
   GetServerSettingsResponse,
@@ -47,6 +48,32 @@ import {
 
 const router: IRouter = Router();
 type ComparisonOperator = "<" | "<=" | "=" | ">=" | ">";
+const CLIENT_INACTIVITY_THRESHOLD_MS = 72 * 60 * 60 * 1000;
+
+const clientLastActivity = sql<Date | null>`coalesce(
+  ${clientsTable.lastPoll},
+  ${clientsTable.lastSuccessfulSync},
+  ${clientsTable.lastSync}
+)`;
+
+function inactiveClientCondition(cutoff: Date) {
+  return or(isNull(clientLastActivity), lt(clientLastActivity, cutoff));
+}
+
+function clientIdForHostname(hostname: string): string {
+  return `host-${createHash("sha256").update(hostname.toLowerCase()).digest("hex").slice(0, 16)}`;
+}
+
+async function markInactiveClients(): Promise<void> {
+  const cutoff = new Date(Date.now() - CLIENT_INACTIVITY_THRESHOLD_MS);
+  await db.update(clientsTable)
+    .set({ status: "stale" })
+    .where(and(
+      eq(clientsTable.status, "online"),
+      ne(clientsTable.certificateStatus, "revoked"),
+      inactiveClientCondition(cutoff),
+    ));
+}
 
 function normalizeExeChecks<T extends {
   executable: string;
@@ -117,12 +144,49 @@ async function requireHostnameForClient(clientId: string, req: Request, res: Res
     res.status(400).json({ error: "X-Nemesys-Hostname header is required" });
     return false;
   }
-  const [client] = await db
+  let [client] = await db
     .select({ id: clientsTable.id, hostname: clientsTable.hostname, status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
     .from(clientsTable)
     .where(eq(clientsTable.id, clientId))
     .limit(1);
-  if (!client || client.hostname.trim().toLowerCase() !== hostname.toLowerCase()) {
+  if (!client) {
+    if (clientId !== clientIdForHostname(hostname)) {
+      res.status(404).json({ error: "Client is not enrolled" });
+      return false;
+    }
+    const now = new Date();
+    [client] = await db.insert(clientsTable)
+      .values({
+        id: clientId,
+        name: hostname,
+        hostname,
+        address: req.ip ?? "unknown",
+        status: "online",
+        lastSync: now,
+        lastPoll: now,
+        syncVersion: "1.0.0",
+        certificateStatus: "valid",
+      })
+      .onConflictDoNothing()
+      .returning({
+        id: clientsTable.id,
+        hostname: clientsTable.hostname,
+        status: clientsTable.status,
+        certificateStatus: clientsTable.certificateStatus,
+      });
+    if (!client) {
+      [client] = await db
+        .select({ id: clientsTable.id, hostname: clientsTable.hostname, status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
+        .from(clientsTable)
+        .where(eq(clientsTable.id, clientId))
+        .limit(1);
+    }
+    if (!client) {
+      res.status(503).json({ error: "Client enrollment could not be restored" });
+      return false;
+    }
+  }
+  if (client.hostname.trim().toLowerCase() !== hostname.toLowerCase()) {
     res.status(403).json({ error: "Client hostname does not match the enrolled client" });
     return false;
   }
@@ -169,6 +233,7 @@ function clientPolicy(policy: ReturnType<typeof toApiPolicy>) {
 }
 
 router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
+  await markInactiveClients();
   const [clientCount] = await db.select({ value: count() }).from(clientsTable);
   const [onlineCount] = await db.select({ value: count() }).from(clientsTable).where(eq(clientsTable.status, "online"));
   const [softwareCount] = await db.select({ value: count() }).from(softwarePoliciesTable).where(eq(softwarePoliciesTable.enabled, true));
@@ -185,8 +250,39 @@ router.get("/dashboard", requireAdmin, async (_req, res): Promise<void> => {
 });
 
 router.get("/clients", requireAdmin, async (_req, res): Promise<void> => {
+  await markInactiveClients();
   const clients = await db.select().from(clientsTable).orderBy(desc(clientsTable.lastSync));
   res.json(ListClientsResponse.parse(clients));
+});
+
+router.delete("/clients/inactive", requireAdmin, async (_req, res): Promise<void> => {
+  const cutoff = new Date(Date.now() - CLIENT_INACTIVITY_THRESHOLD_MS);
+  const deletedClients = await db.transaction(async (transaction) => {
+    const inactiveClients = await transaction.select({ id: clientsTable.id })
+      .from(clientsTable)
+      .where(and(
+        ne(clientsTable.status, "revoked"),
+        ne(clientsTable.certificateStatus, "revoked"),
+        inactiveClientCondition(cutoff),
+      ))
+      .for("update");
+    const clientIds = inactiveClients.map((client) => client.id);
+    if (!clientIds.length) return 0;
+    await transaction.delete(auditEntriesTable).where(inArray(auditEntriesTable.clientId, clientIds));
+    const deleted = await transaction.delete(clientsTable)
+      .where(and(
+        inArray(clientsTable.id, clientIds),
+        ne(clientsTable.status, "revoked"),
+        ne(clientsTable.certificateStatus, "revoked"),
+        inactiveClientCondition(cutoff),
+      ))
+      .returning({ id: clientsTable.id });
+    return deleted.length;
+  });
+  res.json(DeleteInactiveClientsResponse.parse({
+    deletedClients,
+    cutoff: cutoff.toISOString(),
+  }));
 });
 
 router.post("/clients/:id/revoke", requireAdmin, async (req, res): Promise<void> => {
@@ -671,7 +767,7 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
     res.status(400).json({ error: "clientVersion must be a dotted numeric version" });
     return;
   }
-  const id = `host-${createHash("sha256").update(hostname.toLowerCase()).digest("hex").slice(0, 16)}`;
+  const id = clientIdForHostname(hostname);
   const now = new Date();
   const [existingClient] = await db
     .select({ status: clientsTable.status, certificateStatus: clientsTable.certificateStatus })
@@ -691,6 +787,7 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
       address: address ?? req.ip ?? "unknown",
       status: "online",
       lastSync: now,
+      lastPoll: now,
       syncVersion: "1.0.0",
       installedVersion: clientVersion ?? null,
       certificateStatus: "valid",
@@ -703,9 +800,19 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
         address: address ?? req.ip ?? "unknown",
         installedVersion: clientVersion ?? undefined,
         lastSync: now,
+        lastPoll: now,
+        status: "online",
       },
+      setWhere: and(
+        ne(clientsTable.status, "revoked"),
+        ne(clientsTable.certificateStatus, "revoked"),
+      ),
     })
     .returning();
+  if (!client) {
+    res.status(403).json({ error: "Client access is revoked" });
+    return;
+  }
   if (client.status === "revoked" || client.certificateStatus === "revoked") {
     res.status(403).json({ error: "Client access is revoked" });
     return;

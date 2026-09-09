@@ -65,6 +65,11 @@ around 30 seconds while at least one enabled received policy is in Update Mode.
 The effective interval fields retained in the sync payload are accepted for
 compatibility but do not override that client behavior.
 
+The server marks a client inactive after 72 hours without a poll. Administrators
+may bulk-delete inactive clients and their latest audit rows. If this service
+receives a not-found response because its enrollment was deleted, it clears the
+old enrollment state and automatically enrolls the hostname again.
+
 When a policy is noncompliant, the service first checks whether any configured
 supervised, legacy, or version-check executable is currently running. If none is
 running, it skips the user warning and process closure, runs any applicable

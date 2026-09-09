@@ -242,7 +242,7 @@ Major endpoint groups include:
 
 - `/api/auth/*` — login, current administrator, password update, logout
 - `/api/dashboard` — operational summary
-- `/api/clients/*` — enrollment inventory and revocation
+- `/api/clients/*` — enrollment inventory, revocation, and inactive-client cleanup
 - `/api/software/*` — software policy management
 - `/api/audit` — latest client compliance reports
 - `/api/users/*` — administrator management
@@ -250,6 +250,11 @@ Major endpoint groups include:
 - `/api/sync/*` — Windows enrollment, configuration, and reporting
 
 The OpenAPI contract is maintained in [`lib/api-spec/openapi.yaml`](lib/api-spec/openapi.yaml).
+
+Clients that have not polled for 72 hours are marked inactive (`stale`). Administrators
+can permanently delete all inactive clients from the Clients page; their latest audit
+rows are removed in the same transaction. A deleted Windows client automatically
+enrolls again when it next reaches the server.
 
 ## Security model
 
