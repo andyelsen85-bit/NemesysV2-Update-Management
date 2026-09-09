@@ -17,7 +17,8 @@ RUN pnpm --filter @workspace/nemesys-console run build
 
 FROM nginx:1.27-alpine AS runtime
 
-RUN apk add --no-cache openssl inotify-tools
+RUN apk add --no-cache openssl inotify-tools libcap \
+  && setcap cap_net_bind_service=+ep /usr/sbin/nginx
 
 COPY deploy/docker/nginx-main.conf /etc/nginx/nginx.conf
 COPY deploy/docker/nginx-console.conf /etc/nginx/conf.d/default.conf
@@ -27,5 +28,5 @@ COPY --from=build --chown=10001:10001 /workspace/artifacts/nemesys-console/dist/
 RUN chmod 0755 /usr/local/bin/nemesys-console
 
 USER 10001:10001
-EXPOSE 8080 8443
+EXPOSE 80 443
 ENTRYPOINT ["/usr/local/bin/nemesys-console"]

@@ -71,10 +71,10 @@ spec:
           image: srvnexusint.hopital.chdn.lan:6443/infra/nemesys-console:latest
           ports:
             - name: web-http
-              containerPort: 8080
+              containerPort: 80
               protocol: TCP
             - name: web-https
-              containerPort: 8443
+              containerPort: 443
               protocol: TCP
           envFrom:
             - configMapRef:
@@ -83,6 +83,12 @@ spec:
             runAsUser: 10001
             runAsGroup: 10001
             runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
           volumeMounts:
             - name: certs
               mountPath: /var/lib/nemesys/tls

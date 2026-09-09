@@ -25,7 +25,7 @@ Kubernetes deployments follow the Change Manager pattern: the web Service expose
 
 **Why:** This environment exposes application Services directly rather than using Kubernetes Ingress. The console must remain reachable on 443 while Nginx proxies API traffic to the HTTP API sidecar.
 
-**How to apply:** Keep ports 80/443 on the web Service, but map them to unprivileged console container ports 8080/8443. Run Nginx as UID/GID 10001 with its PID and temporary paths under `/tmp`, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.
+**How to apply:** Keep ports 80/443 on both the web Service and console container. Run Nginx as UID/GID 10001 with only `NET_BIND_SERVICE`, place its PID and temporary paths under `/tmp`, persist certificate files on the shared cert volume, let console uploads refresh those files, and never switch the Pod-local API listener to HTTPS.
 
 The API's Pino esbuild integration embeds the build-stage absolute output directory when resolving its emitted worker modules.
 
