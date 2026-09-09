@@ -10,6 +10,7 @@ NemesysV2 is a centralized Windows software update-management platform. It combi
 ## Key capabilities
 
 - Enroll Windows clients by hostname and monitor their latest synchronization state.
+- Mark clients inactive after 72 hours without polling and bulk-delete inactive inventory with its latest audit state.
 - Define software policies using executable file-version checks and INI section/key/value checks with `<`, `<=`, `=`, `>=`, or `>` comparisons.
 - Evaluate EXE and INI requirements together while treating multiple supervised processes as an OR condition.
 - Warn the active Windows user before a managed application closes.
@@ -102,6 +103,23 @@ The client revalidates policy generation, compliance, cancellation state, and pr
 ## Windows client
 
 The Windows client is a self-contained `win-x64` .NET 8 executable installed as the `NemesysV2Client` LocalSystem service.
+
+### Client lifecycle and recovery
+
+- A client is active while it has polled within the last 72 hours.
+- After 72 hours without a poll, the server marks the client inactive (`stale`).
+- Administrators can delete all inactive clients and their latest audit rows from the Clients page.
+- Revoked clients are never included in inactive cleanup. Their records remain durable access-denial tombstones.
+- A deleted client automatically recreates its deterministic hostname enrollment when it reconnects.
+
+Existing clients remain compatible because the server can restore a valid missing hostname
+identity during the next poll. The latest Windows service adds a second recovery path: when
+configuration polling returns HTTP 404, it clears the obsolete client ID, ETag, cached
+configuration, and previous compliance state, waits five seconds, and enrolls again.
+
+Deploying the updated MSI is therefore recommended but is not a prerequisite for inactive
+cleanup. For managed environments, include it in the next SCCM rollout before inactive-client
+deletion becomes a routine administrative operation.
 
 ### User warning behavior
 
@@ -252,9 +270,10 @@ Major endpoint groups include:
 The OpenAPI contract is maintained in [`lib/api-spec/openapi.yaml`](lib/api-spec/openapi.yaml).
 
 Clients that have not polled for 72 hours are marked inactive (`stale`). Administrators
-can permanently delete all inactive clients from the Clients page; their latest audit
-rows are removed in the same transaction. A deleted Windows client automatically
-enrolls again when it next reaches the server.
+can permanently delete all inactive, non-revoked clients from the Clients page; their
+latest audit rows are removed in the same transaction. Revoked clients are preserved,
+and a deleted non-revoked Windows client automatically enrolls again when it next reaches
+the server.
 
 ## Security model
 
