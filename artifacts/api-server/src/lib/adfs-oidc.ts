@@ -26,6 +26,17 @@ export function adfsClientType(clientSecret: string | null | undefined): "public
   return clientSecret ? "confidential" : "public-pkce";
 }
 
+export function serializeCustomFetchBody(body: CustomFetchOptions["body"]): string | Buffer | undefined {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body === "string" || Buffer.isBuffer(body)) return body;
+  if (body instanceof URLSearchParams) return body.toString();
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  throw Object.assign(new TypeError("The OIDC request body type is unsupported."), {
+    code: "OIDC_UNSUPPORTED_REQUEST_BODY",
+  });
+}
+
 function customTlsFetch(caCertificatePem: string | null): CustomFetch {
   const ca: string[] = caCertificatePem ? [...rootCertificates, caCertificatePem] : [...rootCertificates];
   return async (url: string, options: CustomFetchOptions): Promise<Response> => new Promise((resolve, reject) => {
@@ -50,7 +61,8 @@ function customTlsFetch(caCertificatePem: string | null): CustomFetch {
       response.on("error", reject);
     });
     request.on("error", reject);
-    if (options.body !== undefined) request.write(options.body);
+    const body = serializeCustomFetchBody(options.body);
+    if (body !== undefined) request.write(body);
     request.end();
   });
 }

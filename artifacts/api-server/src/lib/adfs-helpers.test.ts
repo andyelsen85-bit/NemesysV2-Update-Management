@@ -7,6 +7,7 @@ import {
   validatePemCertificate,
   validateRedirectUri,
 } from "./adfs-helpers";
+import { serializeCustomFetchBody } from "./adfs-oidc";
 import { adfsClientType } from "./adfs-oidc";
 import { csrfMatches } from "./csrf";
 
@@ -94,6 +95,13 @@ describe("AD FS settings helpers", () => {
       .toBe("DISCOVERY_ISSUER_MISMATCH");
     expect(adfsDiagnosticCode(new Error("response contained sensitive provider details")))
       .toBe("OIDC_CONFIGURATION_ERROR");
+  });
+
+  it("serializes form-encoded OIDC token request bodies", () => {
+    expect(serializeCustomFetchBody(new URLSearchParams({
+      grant_type: "authorization_code",
+      code_verifier: "verifier",
+    }))).toBe("grant_type=authorization_code&code_verifier=verifier");
   });
 });
 
