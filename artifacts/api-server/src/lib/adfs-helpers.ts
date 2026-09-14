@@ -100,6 +100,21 @@ export function validateRedirectUri(value: unknown): string | null {
   return parsed.toString();
 }
 
+export function adfsDiagnosticCode(error: unknown): string {
+  const candidate = error as { code?: unknown; cause?: { code?: unknown }; message?: unknown };
+  const systemCode = candidate?.code ?? candidate?.cause?.code;
+  if (typeof systemCode === "string" && /^[A-Z][A-Z0-9_]{1,63}$/.test(systemCode)) {
+    return systemCode;
+  }
+  const message = typeof candidate?.message === "string" ? candidate.message : "";
+  if (message.includes("discovery issuer does not match")) return "DISCOVERY_ISSUER_MISMATCH";
+  if (message.includes("discovery returned HTTP")) return "DISCOVERY_HTTP_ERROR";
+  if (message.includes("issuer must use HTTPS")) return "INVALID_ISSUER_URL";
+  if (message.includes("discovery URL must use HTTPS")) return "INVALID_DISCOVERY_URL";
+  if (message.includes("redirect URI")) return "INVALID_REDIRECT_URI";
+  return "OIDC_CONFIGURATION_ERROR";
+}
+
 export function adfsSettingsDto(settings: EffectiveAdfsSettings) {
   return {
     enabled: settings.enabled,

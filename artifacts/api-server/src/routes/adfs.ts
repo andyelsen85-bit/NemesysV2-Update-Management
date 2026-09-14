@@ -23,7 +23,7 @@ import {
   safeLocalReturnTo,
   sameSecret,
 } from "../lib/adfs-security";
-import { matchExistingAdfsAdmin } from "../lib/adfs-helpers";
+import { adfsDiagnosticCode, matchExistingAdfsAdmin } from "../lib/adfs-helpers";
 import { setApplicationSession } from "./auth";
 
 const router: IRouter = Router();
@@ -111,7 +111,10 @@ router.get("/adfs/start", async (req, res): Promise<void> => {
     });
     res.redirect(302, request.url.toString());
   } catch (error) {
-    req.log.warn({ errorType: error instanceof Error ? error.name : "UnknownError" }, "AD FS authorization could not start");
+    req.log.warn({
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      diagnosticCode: adfsDiagnosticCode(error),
+    }, "AD FS authorization could not start");
     res.redirect(302, errorRedirect(returnTo, "unavailable"));
   }
 });
@@ -169,7 +172,10 @@ router.get("/adfs/callback", async (req, res): Promise<void> => {
     });
     res.redirect(302, safeLocalReturnTo(state.returnTo));
   } catch (error) {
-    req.log.warn({ errorType: error instanceof Error ? error.name : "UnknownError" }, "AD FS callback failed");
+    req.log.warn({
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      diagnosticCode: adfsDiagnosticCode(error),
+    }, "AD FS callback failed");
     res.redirect(302, errorRedirect(state.returnTo, "failed"));
   }
 });

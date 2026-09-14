@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adfsDiagnosticCode,
   adfsSettingsDto,
   buildEffectiveAdfsSettings,
   matchExistingAdfsAdmin,
@@ -84,6 +85,15 @@ describe("AD FS settings helpers", () => {
     expect(() => validateRedirectUri("http://console.example.test/callback")).toThrow(/HTTPS/);
     expect(() => validateRedirectUri("https://user:password@example.test/callback")).toThrow(/credentials/);
     expect(() => validateRedirectUri("https://example.test/callback#fragment")).toThrow(/fragment/);
+  });
+
+  it("reports safe diagnostics without exposing error messages", () => {
+    expect(adfsDiagnosticCode(Object.assign(new Error("getaddrinfo failed for a private host"), { code: "ENOTFOUND" })))
+      .toBe("ENOTFOUND");
+    expect(adfsDiagnosticCode(new Error("AD FS discovery issuer does not match the configured issuer.")))
+      .toBe("DISCOVERY_ISSUER_MISMATCH");
+    expect(adfsDiagnosticCode(new Error("response contained sensitive provider details")))
+      .toBe("OIDC_CONFIGURATION_ERROR");
   });
 });
 

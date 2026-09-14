@@ -117,9 +117,6 @@ export async function createAuthorizationRequest(
   redirectUri: string,
 ): Promise<{ url: URL; state: string; nonce: string; codeVerifier: string }> {
   const configuration = await getAdfsOidcConfiguration(settings);
-  if (!configuration.serverMetadata().supportsPKCE("S256")) {
-    throw new Error("AD FS does not advertise S256 PKCE support.");
-  }
   const state = randomState();
   const nonce = randomNonce();
   const codeVerifier = randomPKCECodeVerifier();
