@@ -8,3 +8,5 @@ Always use S256 PKCE for AD FS authorization requests, but do not require `code_
 **Why:** Some AD FS deployments support and enforce S256 while omitting this optional discovery metadata field. Rejecting the provider based on the omission prevents otherwise valid sign-in.
 
 **How to apply:** Generate and send the verifier, S256 challenge, and `code_challenge_method=S256` on every authorization request; let the provider reject unsupported methods.
+
+Confirmed working against the target AD FS deployment on 2026-09-14.
