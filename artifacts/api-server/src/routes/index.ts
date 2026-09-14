@@ -4,11 +4,13 @@ import managementRouter from "./management";
 import authRouter from "./auth";
 import securityRouter from "./security";
 import usersRouter from "./users";
+import adfsRouter from "./adfs";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/auth", authRouter);
+router.use("/auth", adfsRouter);
 router.use(securityRouter);
 router.use(usersRouter);
 router.use(managementRouter);

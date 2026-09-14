@@ -20,6 +20,7 @@ NemesysV2 is a centralized Windows software update-management platform. It combi
 - Launch an application once when a policy leaves Update Mode.
 - Store one latest audit result per client for current-state reporting.
 - Manage administrators, LDAP settings, TLS certificates, API keys, and server settings.
+- Authenticate administrators with local credentials, LDAP, or AD FS OpenID Connect (authorization code with S256 PKCE), while retaining the existing session and account model.
 - Cache paged Active Directory computer/group data and target policies to direct, nested, or primary group memberships without live LDAP queries during client sync.
 - Deploy the control plane as containerized Kubernetes workloads.
 - Build the x64 Windows client as a WiX MSI through GitHub Actions.
@@ -252,13 +253,14 @@ All application endpoints are mounted under `/api`.
 
 | Area                               | Authentication                            |
 | ---------------------------------- | ----------------------------------------- |
-| Administrator management endpoints | Signed HttpOnly session cookie            |
+| Administrator management endpoints | Signed HttpOnly session cookie (local, LDAP, or AD FS OIDC login) |
 | Client `/sync/*` endpoints         | Shared client API key and hostname header |
 | Health endpoint                    | Public                                    |
 
 Major endpoint groups include:
 
 - `/api/auth/*` — login, current administrator, password update, logout
+- `/api/auth/adfs/*` — optional AD FS OIDC discovery-backed sign-in and callback
 - `/api/dashboard` — operational summary
 - `/api/clients/*` — enrollment inventory, revocation, and inactive-client cleanup
 - `/api/software/*` — software policy management
@@ -278,6 +280,7 @@ the server.
 ## Security model
 
 - Administrator sessions use signed HttpOnly cookies.
+- AD FS uses authorization-code flow with S256 PKCE, signed state, nonce, issuer/audience/JWKS validation, and the normal NemesysV2 session; upstream tokens are not persisted.
 - Client requests use a shared API key; the server stores a SHA-256 authentication hash and an encrypted recovery copy.
 - Client identity is the Windows hostname. Reported IP addresses are informational.
 - The client stores only the machine-DPAPI-encrypted API key in `client.json`.
@@ -297,6 +300,9 @@ Pushes to `main`, version tags, and manual workflow runs build Linux/AMD64 image
 - `nemesys-console`
 
 Images are published to GHCR with branch, version, immutable commit-SHA, and `latest` tags as appropriate. See [`.github/workflows/build-images.yml`](.github/workflows/build-images.yml).
+
+After a full-stack authentication change, mirror **both** the `nemesys-api-server`
+and `nemesys-console` images to Nexus and roll out matching immutable tags.
 
 ## Kubernetes deployment
 
@@ -318,7 +324,7 @@ kubectl -n nemesys rollout status deployment/pg-deployment
 kubectl -n nemesys rollout status deployment/nemesys-deployment
 ```
 
-The API automatically provisions and upgrades its schema before listening. Upgrades run inside one PostgreSQL transaction protected by an advisory lock. The Kubernetes startup probe allows migration and lock-wait time before liveness checks begin.
+The API automatically provisions and upgrades its schema before listening. Upgrades run inside one PostgreSQL transaction protected by an advisory lock, including the additive AD FS settings and external identity-mapping migration. The Kubernetes startup probe allows migration and lock-wait time before liveness checks begin.
 
 The `DATABASE_URL` role must:
 
@@ -344,5 +350,6 @@ Use immutable SHA image tags for Kubernetes rollouts. Create a `v*` tag when pub
 - [Windows client behavior and diagnostics](clients/windows-service/README.md)
 - [Windows MSI packaging and lifecycle](installer/windows/README.md)
 - [Kubernetes deployment](deploy/kubernetes/README.md)
+- [AD FS OpenID Connect setup and operations](docs/adfs.md)
 - [Windows client installation notes](docs/windows-client-install.md)
 - [OpenAPI specification](lib/api-spec/openapi.yaml)

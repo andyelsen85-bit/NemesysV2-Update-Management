@@ -651,6 +651,61 @@ export const UpdateLdapSettingsResponse = zod.object({
 
 
 /**
+ * @summary Get effective AD FS OpenID Connect settings
+ */
+export const GetAdfsSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "displayName": zod.string(),
+  "issuer": zod.string(),
+  "discoveryUrl": zod.string(),
+  "clientId": zod.string(),
+  "redirectUri": zod.string().nullable(),
+  "scopes": zod.string(),
+  "usernameClaim": zod.string(),
+  "emailClaim": zod.string(),
+  "displayNameClaim": zod.string(),
+  "secretConfigured": zod.boolean(),
+  "caConfigured": zod.boolean()
+})
+
+
+/**
+ * @summary Update AD FS OpenID Connect settings
+ */
+export const UpdateAdfsSettingsBody = zod.object({
+  "enabled": zod.boolean().optional(),
+  "displayName": zod.string().optional(),
+  "issuer": zod.string().optional(),
+  "discoveryUrl": zod.string().optional(),
+  "clientId": zod.string().optional(),
+  "clientSecret": zod.string().optional(),
+  "clearClientSecret": zod.boolean().optional(),
+  "redirectUri": zod.string().nullish(),
+  "scopes": zod.string().optional(),
+  "usernameClaim": zod.string().optional(),
+  "emailClaim": zod.string().optional(),
+  "displayNameClaim": zod.string().optional(),
+  "caCertificatePem": zod.string().optional(),
+  "clearCaCertificate": zod.boolean().optional()
+})
+
+export const UpdateAdfsSettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "displayName": zod.string(),
+  "issuer": zod.string(),
+  "discoveryUrl": zod.string(),
+  "clientId": zod.string(),
+  "redirectUri": zod.string().nullable(),
+  "scopes": zod.string(),
+  "usernameClaim": zod.string(),
+  "emailClaim": zod.string(),
+  "displayNameClaim": zod.string(),
+  "secretConfigured": zod.boolean(),
+  "caConfigured": zod.boolean()
+})
+
+
+/**
  * @summary Test LDAP authentication
  */
 export const TestLdapConnectionBody = zod.object({
@@ -873,6 +928,32 @@ export const ChangeAdministratorPasswordResponse = zod.object({
  * @summary End the administrator session
  */
 export const LogoutResponse = zod.void()
+
+
+/**
+ * @summary Get public AD FS login provider configuration
+ */
+export const GetAdfsAuthProviderConfigResponse = zod.object({
+  "enabled": zod.boolean(),
+  "configured": zod.boolean(),
+  "displayName": zod.string()
+})
+
+
+/**
+ * @summary Start AD FS authorization code login
+ */
+export const StartAdfsLoginQueryParams = zod.object({
+  "returnTo": zod.coerce.string().optional()
+})
+
+export const StartAdfsLoginResponse = zod.void()
+
+
+/**
+ * @summary Complete AD FS authorization code login
+ */
+export const CompleteAdfsLoginResponse = zod.void()
 
 
 /**

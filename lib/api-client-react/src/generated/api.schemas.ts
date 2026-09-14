@@ -26,6 +26,12 @@ export interface AuthSession {
   username: string;
 }
 
+export interface AdfsAuthProviderConfig {
+  enabled: boolean;
+  configured: boolean;
+  displayName: string;
+}
+
 export interface AuthPasswordChangeInput {
   /** @minLength 1 */
   currentPassword: string;
@@ -334,6 +340,40 @@ export interface LdapSettingsInput {
   caCertificatePem?: string;
 }
 
+export interface AdfsSettings {
+  enabled: boolean;
+  displayName: string;
+  issuer: string;
+  discoveryUrl: string;
+  clientId: string;
+  /** @nullable */
+  redirectUri: string | null;
+  scopes: string;
+  usernameClaim: string;
+  emailClaim: string;
+  displayNameClaim: string;
+  secretConfigured: boolean;
+  caConfigured: boolean;
+}
+
+export interface AdfsSettingsInput {
+  enabled?: boolean;
+  displayName?: string;
+  issuer?: string;
+  discoveryUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  clearClientSecret?: boolean;
+  /** @nullable */
+  redirectUri?: string | null;
+  scopes?: string;
+  usernameClaim?: string;
+  emailClaim?: string;
+  displayNameClaim?: string;
+  caCertificatePem?: string;
+  clearCaCertificate?: boolean;
+}
+
 export interface LdapTestInput {
   username: string;
   password: string;
@@ -484,6 +524,10 @@ export type ListAuditEntriesParams = {
  * @maximum 100
  */
 limit?: number;
+};
+
+export type StartAdfsLoginParams = {
+returnTo?: string;
 };
 
 export type GetSyncConfigParams = {

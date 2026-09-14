@@ -1,15 +1,93 @@
 import { createPrivateKey, createPublicKey, X509Certificate, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, directoryCacheStatusTable, directoryComputerGroupsTable, directoryComputersTable, directoryGroupsTable, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
+import { adfsSettingsTable, db, directoryCacheStatusTable, directoryComputerGroupsTable, directoryComputersTable, directoryGroupsTable, ldapSettingsTable, sslSettingsTable } from "@workspace/db";
 import { desc } from "drizzle-orm";
 import { requireAdmin } from "./auth";
 import { encryptSecret } from "../lib/secret-crypto";
 import { materializeTlsCredentials, usesProxyTlsTermination } from "../lib/ssl";
 import { syncDirectoryCache, testLdapConnection } from "../lib/ldap";
+import { adfsSettingsDto, getAdfsSettings, validatePemCertificate } from "../lib/adfs-config";
+import { clearAdfsOidcCache } from "../lib/adfs-oidc";
+import { requireCsrf } from "../lib/csrf";
 
 const router: IRouter = Router();
 const SETTINGS_ID = "default";
+
+router.get("/settings/adfs", requireAdmin, async (_req, res): Promise<void> => {
+  res.json(adfsSettingsDto(await getAdfsSettings()));
+});
+
+router.put("/settings/adfs", requireAdmin, async (req, res): Promise<void> => {
+  if (!requireCsrf(req, res)) return;
+  const body = req.body ?? {};
+  if (typeof body !== "object" || Array.isArray(body)) {
+    res.status(400).json({ error: "A JSON object is required." });
+    return;
+  }
+  if (body.clearClientSecret === true && body.clientSecret !== undefined) {
+    res.status(400).json({ error: "Use either clientSecret or clearClientSecret, not both." });
+    return;
+  }
+  if (body.clearCaCertificate === true && body.caCertificatePem !== undefined) {
+    res.status(400).json({ error: "Use either caCertificatePem or clearCaCertificate, not both." });
+    return;
+  }
+  const values: Record<string, unknown> = { id: SETTINGS_ID, updatedAt: new Date() };
+  const stringFields = [
+    "displayName", "issuer", "discoveryUrl", "clientId", "redirectUri",
+    "scopes", "usernameClaim", "emailClaim", "displayNameClaim",
+  ] as const;
+  for (const field of stringFields) {
+    if (body[field] !== undefined) {
+      if (body[field] !== null && typeof body[field] !== "string") {
+        res.status(400).json({ error: `${field} must be a string.` });
+        return;
+      }
+      values[field] = typeof body[field] === "string" ? body[field].trim() : null;
+    }
+  }
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== "boolean") {
+      res.status(400).json({ error: "enabled must be a boolean." });
+      return;
+    }
+    values.enabled = body.enabled;
+  }
+  if (body.clientSecret !== undefined) {
+    if (typeof body.clientSecret !== "string" || !body.clientSecret) {
+      res.status(400).json({ error: "clientSecret must be a non-empty string." });
+      return;
+    }
+    values.clientSecretEncrypted = encryptSecret(body.clientSecret);
+    values.clientSecretCleared = false;
+  } else if (body.clearClientSecret === true) {
+    values.clientSecretEncrypted = null;
+    values.clientSecretCleared = true;
+  }
+  if (body.caCertificatePem !== undefined) {
+    const pem = validatePemCertificate(body.caCertificatePem);
+    if (!pem) {
+      res.status(400).json({ error: "caCertificatePem must contain a valid PEM certificate." });
+      return;
+    }
+    values.caCertificatePem = pem;
+    values.caCertificateCleared = false;
+  } else if (body.clearCaCertificate === true) {
+    values.caCertificatePem = null;
+    values.caCertificateCleared = true;
+  }
+  const updateValues = { ...values };
+  delete updateValues.id;
+  await db.insert(adfsSettingsTable)
+    .values(values as typeof adfsSettingsTable.$inferInsert)
+    .onConflictDoUpdate({
+      target: adfsSettingsTable.id,
+      set: updateValues as typeof adfsSettingsTable.$inferInsert,
+    });
+  clearAdfsOidcCache();
+  res.json(adfsSettingsDto(await getAdfsSettings()));
+});
 
 function ldapDto(row: typeof ldapSettingsTable.$inferSelect | undefined) {
   return {

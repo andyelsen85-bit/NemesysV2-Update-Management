@@ -4,9 +4,10 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { eq } from "drizzle-orm";
 import { adminUsersTable, db, serverSettingsTable } from "@workspace/db";
 import { authenticateLdap } from "../lib/ldap";
+import { ADFS_LOGIN_PREFERENCE_COOKIE } from "../lib/adfs-security";
 
 const scrypt = promisify(scryptCallback);
-const SESSION_COOKIE = "nemesys_session";
+export const SESSION_COOKIE = "nemesys_session";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const router: IRouter = Router();
 
@@ -30,11 +31,21 @@ function sessionSecret(): string {
   return secret;
 }
 
-function createSession(username: string): string {
+export function createSession(username: string): string {
   const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS;
   const payload = `${username}.${expiresAt}`;
   const signature = createHmac("sha256", sessionSecret()).update(payload).digest("base64url");
   return `${payload}.${signature}`;
+}
+
+export function setApplicationSession(req: Request, res: Response, username: string): void {
+  res.cookie(SESSION_COOKIE, createSession(username), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: req.secure,
+    maxAge: SESSION_TTL_SECONDS * 1000,
+    path: "/",
+  });
 }
 
 export function getSessionUsername(req: Request): string | null {
@@ -95,13 +106,8 @@ router.post("/login", async (req, res): Promise<void> => {
     }).where(eq(adminUsersTable.id, ldapUser.id));
   }
 
-  res.cookie(SESSION_COOKIE, createSession(username), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: req.secure,
-    maxAge: SESSION_TTL_SECONDS * 1000,
-    path: "/",
-  });
+  setApplicationSession(req, res, username);
+  res.clearCookie(ADFS_LOGIN_PREFERENCE_COOKIE, { sameSite: "lax", path: "/" });
   res.json({ username });
 });
 
@@ -146,6 +152,7 @@ router.post("/password", requireAdmin, async (req, res): Promise<void> => {
 
 router.post("/logout", (_req, res): void => {
   res.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: "lax", path: "/" });
+  res.clearCookie(ADFS_LOGIN_PREFERENCE_COOKIE, { sameSite: "lax", path: "/" });
   res.status(204).end();
 });
 

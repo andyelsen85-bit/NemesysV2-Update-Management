@@ -10,3 +10,4 @@
 - [Inactive client lifecycle](inactive-client-lifecycle.md) — clients become stale after 72 hours; cleanup preserves revoked tombstones and supports automatic re-enrollment.
 - [API key disclosure auditing](api-key-disclosure-auditing.md) — plaintext client API keys are explicit, no-store disclosures recorded with the administrator identity.
 - [Active Directory policy targeting](active-directory-policy-targeting.md) — target only from a durable paged cache; preserve immutable AD identity and fail closed for stale or unmatched computers.
+- [openid-client token signatures](openid-client-token-signatures.md) — v6 ID-token JWS/JWKS validation requires explicit non-repudiation checks.

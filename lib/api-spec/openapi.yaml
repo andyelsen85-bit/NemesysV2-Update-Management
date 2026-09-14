@@ -340,6 +340,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LdapSettings"
+  /settings/adfs:
+    get:
+      operationId: getAdfsSettings
+      tags: [settings]
+      summary: Get effective AD FS OpenID Connect settings
+      responses:
+        "200":
+          description: AD FS settings with secret and certificate material masked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdfsSettings"
+    put:
+      operationId: updateAdfsSettings
+      tags: [settings]
+      summary: Update AD FS OpenID Connect settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdfsSettingsInput"
+      responses:
+        "200":
+          description: Updated AD FS settings with secret and certificate material masked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdfsSettings"
   /settings/ldap/test:
     post:
       operationId: testLdapConnection
@@ -533,6 +562,37 @@ paths:
       responses:
         "204":
           description: Session ended
+  /auth/adfs/config:
+    get:
+      operationId: getAdfsAuthProviderConfig
+      tags: [auth]
+      summary: Get public AD FS login provider configuration
+      responses:
+        "200":
+          description: Public AD FS provider configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdfsAuthProviderConfig"
+  /auth/adfs/start:
+    get:
+      operationId: startAdfsLogin
+      tags: [auth]
+      summary: Start AD FS authorization code login
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "302": { description: Redirect to AD FS }
+  /auth/adfs/callback:
+    get:
+      operationId: completeAdfsLogin
+      tags: [auth]
+      summary: Complete AD FS authorization code login
+      responses:
+        "302": { description: Redirect to the local application }
   /sync/config:
     get:
       operationId: getSyncConfig
@@ -659,6 +719,13 @@ components:
       required: [username]
       properties:
         username: { type: string }
+    AdfsAuthProviderConfig:
+      type: object
+      required: [enabled, configured, displayName]
+      properties:
+        enabled: { type: boolean }
+        configured: { type: boolean }
+        displayName: { type: string }
     AuthPasswordChangeInput:
       type: object
       required: [currentPassword, newPassword]
@@ -941,6 +1008,39 @@ components:
         emailAttribute: { type: string }
         verifyTlsCertificate: { type: boolean }
         caCertificatePem: { type: string }
+    AdfsSettings:
+      type: object
+      required: [enabled, displayName, issuer, discoveryUrl, clientId, redirectUri, scopes, usernameClaim, emailClaim, displayNameClaim, secretConfigured, caConfigured]
+      properties:
+        enabled: { type: boolean }
+        displayName: { type: string }
+        issuer: { type: string }
+        discoveryUrl: { type: string }
+        clientId: { type: string }
+        redirectUri: { type: ["string", "null"] }
+        scopes: { type: string }
+        usernameClaim: { type: string }
+        emailClaim: { type: string }
+        displayNameClaim: { type: string }
+        secretConfigured: { type: boolean }
+        caConfigured: { type: boolean }
+    AdfsSettingsInput:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        displayName: { type: string }
+        issuer: { type: string }
+        discoveryUrl: { type: string }
+        clientId: { type: string }
+        clientSecret: { type: string }
+        clearClientSecret: { type: boolean }
+        redirectUri: { type: ["string", "null"] }
+        scopes: { type: string }
+        usernameClaim: { type: string }
+        emailClaim: { type: string }
+        displayNameClaim: { type: string }
+        caCertificatePem: { type: string }
+        clearCaCertificate: { type: boolean }
     LdapTestInput:
       type: object
       required: [username, password]

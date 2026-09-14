@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { getSslSettings } from "./lib/ssl";
+import { ensureCsrfCookie } from "./lib/csrf";
 
 const app: Express = express();
 app.set("trust proxy", true);
@@ -30,6 +31,10 @@ app.use(
 );
 app.use(cors());
 app.use(cookieParser());
+app.use((req, res, next) => {
+  ensureCsrfCookie(req, res);
+  next();
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(async (req, res, next) => {

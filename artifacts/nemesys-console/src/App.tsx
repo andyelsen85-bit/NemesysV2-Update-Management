@@ -17,12 +17,13 @@ import {
   useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware,
   useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey,
   useGetLdapDirectoryCacheStatus, useListLdapDirectoryGroups, useListLdapDirectoryComputers, useSyncLdapDirectory,
-  getGetLdapDirectoryCacheStatusQueryKey, getListLdapDirectoryGroupsQueryKey, getListLdapDirectoryComputersQueryKey
+  getGetLdapDirectoryCacheStatusQueryKey, getListLdapDirectoryGroupsQueryKey, getListLdapDirectoryComputersQueryKey,
+  useGetAdfsAuthProviderConfig, useGetAdfsSettings, useUpdateAdfsSettings, getGetAdfsSettingsQueryKey
 } from '@workspace/api-client-react';
 import type {
   AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
   SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit,
-  DirectoryGroup, DirectoryComputer
+  DirectoryGroup, DirectoryComputer, AdfsSettingsInput
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -150,9 +151,20 @@ function EmptyState({ icon: Icon, title, detail, action }: { icon: typeof Search
 }
 
 function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const searchParams = new URLSearchParams(window.location.search);
+  const adfsError = searchParams.get('adfsError');
+  const authError = adfsError ? ({
+    unavailable: 'AD FS is temporarily unavailable. You can still use local or LDAP credentials.',
+    validation: 'The AD FS response could not be validated. Please start sign-in again.',
+    cancelled: 'AD FS sign-in was cancelled.',
+    configuration: 'AD FS is not fully configured.',
+    failed: 'AD FS sign-in could not be completed. Contact an administrator if this continues.',
+  }[adfsError] ?? 'AD FS sign-in could not be completed.') : '';
+  const adfsConfig = useGetAdfsAuthProviderConfig();
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState(authError || '');
   const [busy, setBusy] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -176,15 +188,62 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
       setBusy(false);
     }
   };
-  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]"><div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]"><div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Control center · v{APP_VERSION}</div></div></div><div className="mt-8"><div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />Administrator access</div><h1 className="text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Sign in to control center</h1><p className="mt-2 text-sm leading-6 text-[#71817c]">Manage Windows clients, application policies, and the shared sync channel.</p></div><form onSubmit={submit} className="mt-7 space-y-4"><label className="block"><span className="field-label">Username</span><input autoFocus autoComplete="username" required data-testid="input-login-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">Password</span><input required autoComplete="current-password" type="password" data-testid="input-login-password" value={password} onChange={(event) => setPassword(event.target.value)} className="field-input" /></label>{feedback && <div role="alert" data-testid="text-login-error" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<Button type="submit" disabled={busy} className="mt-2 w-full">{busy ? 'Signing in…' : 'Sign in'}</Button></form></div></div>;
+
+  const adfsAvailable = adfsConfig.data?.enabled && adfsConfig.data?.configured;
+
+  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]"><div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]"><div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Control center · v{APP_VERSION}</div></div></div><div className="mt-8"><div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />Administrator access</div><h1 className="text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Sign in to control center</h1><p className="mt-2 text-sm leading-6 text-[#71817c]">Manage Windows clients, application policies, and the shared sync channel.</p></div>
+
+    {adfsAvailable && (
+      <div className="mt-6 border-b border-[#e5ebe5] pb-6">
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full justify-center shadow-[0_2px_4px_rgba(39,66,58,.04)]"
+          onClick={() => {
+            const target = new URL(window.location.href);
+            target.searchParams.delete('adfsError');
+            const returnTo = target.pathname + target.search + target.hash;
+            window.location.href = `/api/auth/adfs/start?returnTo=${encodeURIComponent(returnTo)}`;
+          }}
+        >
+          {adfsConfig.data?.displayName || 'Sign in with AD FS'}
+        </Button>
+      </div>
+    )}
+
+    <form onSubmit={submit} className={cx("space-y-4", adfsAvailable ? "mt-6" : "mt-7")}>
+      {adfsAvailable && <div className="text-center text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#9ba8a1]">Or use local or LDAP credentials</div>}
+      <label className="block"><span className="field-label">Username</span><input autoFocus autoComplete="username" required data-testid="input-login-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">Password</span><input required autoComplete="current-password" type="password" data-testid="input-login-password" value={password} onChange={(event) => setPassword(event.target.value)} className="field-input" /></label>{feedback && <div role="alert" data-testid="text-login-error" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<Button type="submit" disabled={busy} className="mt-2 w-full">{busy ? 'Signing in…' : 'Sign in'}</Button></form></div></div>;
 }
 
 function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<'checking' | 'authenticated' | 'signed-out'>('checking');
   useEffect(() => {
+    const handleSignedOut = () => {
+      const match = document.cookie.match(/(?:^|;\s*)nemesys_login_method=adfs(?:;|$)/);
+      const attempted = sessionStorage.getItem('adfs_auto_login_attempted');
+      if (match && !attempted) {
+        sessionStorage.setItem('adfs_auto_login_attempted', 'true');
+        const target = new URL(window.location.href);
+        target.searchParams.delete('adfsError');
+        const returnTo = target.pathname + target.search + target.hash;
+        window.location.href = `/api/auth/adfs/start?returnTo=${encodeURIComponent(returnTo)}`;
+        return;
+      }
+      setState('signed-out');
+    };
+    window.addEventListener('nemesys:unauthorized', handleSignedOut);
     fetch('/api/auth/me', { credentials: 'include' })
-      .then((response) => setState(response.ok ? 'authenticated' : 'signed-out'))
-      .catch(() => setState('signed-out'));
+      .then((response) => {
+        if (response.ok) {
+          sessionStorage.removeItem('adfs_auto_login_attempted');
+          setState('authenticated');
+        } else {
+          handleSignedOut();
+        }
+      })
+      .catch(handleSignedOut);
+    return () => window.removeEventListener('nemesys:unauthorized', handleSignedOut);
   }, []);
   if (state === 'checking') return <div className="flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef]"><div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] px-5 py-4 text-sm font-semibold text-[#536b68]">Checking administrator session…</div></div>;
   if (state === 'signed-out') return <LoginPage onAuthenticated={() => setState('authenticated')} />;
@@ -217,6 +276,7 @@ function Layout({ children }: { children: ReactNode }) {
     }).catch(() => undefined);
   }, []);
   const logout = async () => {
+    sessionStorage.removeItem('adfs_auto_login_attempted');
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     window.location.reload();
   };
@@ -1248,6 +1308,116 @@ function ClientUpdatesPage() {
   </div>;
 }
 
+function AdfsSettingsPanel() {
+  const query = useGetAdfsSettings();
+  const update = useUpdateAdfsSettings();
+
+  const [form, setForm] = useState<AdfsSettingsInput>({});
+  const [initialized, setInitialized] = useState(false);
+  const [feedback, setFeedback] = useState('');
+
+  useEffect(() => {
+    if (query.data && !initialized) {
+      setForm(query.data);
+      setInitialized(true);
+    }
+  }, [query.data, initialized]);
+
+  const set = <K extends keyof AdfsSettingsInput>(key: K, value: AdfsSettingsInput[K]) => setForm((current) => ({ ...current, [key]: value }));
+
+  const readPem = (setter: (v: string) => void) => (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text === 'string') setter(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    setFeedback('');
+    update.mutate({ data: form }, {
+      onSuccess: (saved) => {
+        setForm(saved);
+        setFeedback('AD FS settings saved.');
+        queryClient.invalidateQueries({ queryKey: getGetAdfsSettingsQueryKey() });
+      },
+      onError: (error) => {
+         setFeedback(error instanceof Error ? error.message : 'Unable to save AD FS settings.');
+      }
+    });
+  };
+
+  if (query.isError) return <div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5"><ErrorState onRetry={() => query.refetch()} /></div>;
+  if (query.isLoading && !initialized) return <div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><LoadingRows count={4} /></div>;
+
+  return (
+    <form id="adfs-settings-form" onSubmit={save} className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+      <div className="mb-5 flex items-start gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Globe2 size={18} /></div>
+        <div>
+          <h2 className="text-sm font-extrabold text-[#284139]">AD FS authentication</h2>
+          <p className="mt-1 text-xs leading-5 text-[#87958e]">Configure Active Directory Federation Services or another generic OpenID Connect provider for administrator login.</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SettingToggle label="Enable AD FS login" detail="Allow administrators to sign in via the configured provider." value={form.enabled || false} onChange={(value) => set('enabled', value)} testId="toggle-adfs-enabled" />
+
+        <label className="block max-w-sm"><span className="field-label">Display name</span><input required value={form.displayName || ''} onChange={(e) => set('displayName', e.target.value)} placeholder="e.g. AD FS or Azure AD" className="field-input" /></label>
+        <label className="block max-w-sm"><span className="field-label">Issuer URL</span><input required value={form.issuer || ''} onChange={(e) => set('issuer', e.target.value)} placeholder="https://adfs.example.com/adfs" className="field-input font-mono" /></label>
+        <label className="block max-w-sm"><span className="field-label">Discovery URL <span className="font-normal normal-case">(optional)</span></span><input value={form.discoveryUrl || ''} onChange={(e) => set('discoveryUrl', e.target.value)} placeholder="Uses issuer discovery when blank" className="field-input font-mono" /></label>
+        <label className="block max-w-sm"><span className="field-label">Client ID</span><input required value={form.clientId || ''} onChange={(e) => set('clientId', e.target.value)} className="field-input font-mono" /></label>
+
+        <label className="block max-w-sm"><span className="field-label">Client Secret {(query.data?.secretConfigured && !form.clearClientSecret) && <span className="font-normal normal-case text-[#4d9475]">(saved)</span>}</span>
+          <input type="password" value={form.clientSecret || ''} onChange={(e) => {
+            set('clientSecret', e.target.value);
+            if (e.target.value) set('clearClientSecret', false);
+          }} placeholder={(query.data?.secretConfigured && !form.clearClientSecret) ? 'Leave blank to keep saved secret' : ''} className="field-input font-mono" />
+          {(query.data?.secretConfigured && !form.clearClientSecret && !form.clientSecret) && (
+            <button type="button" onClick={() => set('clearClientSecret', true)} className="mt-1 text-[10px] font-semibold text-[#a13a31] hover:underline focus:outline-none">Remove saved secret</button>
+          )}
+          {form.clearClientSecret && <div className="mt-1 text-[10px] text-[#8a5a08]">Secret will be removed on save.</div>}
+          {form.clearClientSecret && query.data?.secretConfigured && <button type="button" onClick={() => set('clearClientSecret', false)} className="mt-1 block text-[10px] font-semibold text-[#317357] hover:underline">Keep existing secret</button>}
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label><span className="field-label">Username claim</span><input required value={form.usernameClaim || ''} onChange={(e) => set('usernameClaim', e.target.value)} placeholder="upn" className="field-input font-mono" /></label>
+          <label><span className="field-label">Email claim</span><input required value={form.emailClaim || ''} onChange={(e) => set('emailClaim', e.target.value)} placeholder="email" className="field-input font-mono" /></label>
+          <label><span className="field-label">Display name claim</span><input required value={form.displayNameClaim || ''} onChange={(e) => set('displayNameClaim', e.target.value)} placeholder="name" className="field-input font-mono" /></label>
+        </div>
+
+        <label className="block max-w-sm"><span className="field-label">Scopes</span><input required value={form.scopes || ''} onChange={(e) => set('scopes', e.target.value)} placeholder="openid profile email" className="field-input font-mono" /></label>
+
+        <label className="block max-w-sm"><span className="field-label">Redirect URI</span><input required type="url" value={form.redirectUri || ''} onChange={(e) => set('redirectUri', e.target.value)} placeholder="https://updates.example.com/api/auth/adfs/callback" className="field-input font-mono" /><span className="mt-1 block text-[10px] text-[#87958e]">Must exactly match the HTTPS redirect URI registered in AD FS.</span></label>
+
+        <label className="block"><span className="field-label">CA Certificate PEM <span className="font-normal normal-case">(optional)</span> {(query.data?.caConfigured && !form.clearCaCertificate) && <span className="font-normal normal-case text-[#4d9475]">(saved)</span>}</span>
+          <textarea value={form.caCertificatePem || ''} onChange={(e) => {
+            set('caCertificatePem', e.target.value);
+            if (e.target.value) set('clearCaCertificate', false);
+          }} placeholder={(query.data?.caConfigured && !form.clearCaCertificate) ? 'Leave blank to keep installed CA certificate' : '-----BEGIN CERTIFICATE-----'} className="field-input min-h-20 font-mono text-[10px]" />
+          <input type="file" accept=".pem,.crt,.cer" onChange={readPem((v) => { set('caCertificatePem', v); set('clearCaCertificate', false); })} className="mt-2 block w-full text-[10px] text-[#71817c]" />
+          {(query.data?.caConfigured && !form.clearCaCertificate && !form.caCertificatePem) && (
+            <button type="button" onClick={() => set('clearCaCertificate', true)} className="mt-1 text-[10px] font-semibold text-[#a13a31] hover:underline focus:outline-none">Remove installed CA certificate</button>
+          )}
+          {form.clearCaCertificate && <div className="mt-1 text-[10px] text-[#8a5a08]">CA Certificate will be removed on save.</div>}
+          {form.clearCaCertificate && query.data?.caConfigured && <button type="button" onClick={() => set('clearCaCertificate', false)} className="mt-1 block text-[10px] font-semibold text-[#317357] hover:underline">Keep existing certificate</button>}
+        </label>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between border-t border-[#e5ebe5] pt-5">
+        <div>
+          {feedback && <span className={cx("text-xs font-semibold", feedback.includes('Unable') ? "text-[#a13a31]" : "text-[#317357]")}>{feedback}</span>}
+        </div>
+        <Button type="submit" disabled={update.isPending}><Save size={14} />{update.isPending ? 'Saving...' : 'Save AD FS settings'}</Button>
+      </div>
+    </form>
+  );
+}
+
 function SettingsPage() {
   const query = useGetServerSettings();
   const update = useUpdateServerSettings();
@@ -1266,12 +1436,18 @@ function SettingsPage() {
   const installCommand = rotation ? `NemesysClientSetup.exe /quiet /server "${serverEndpoint}" /apiKey "${rotation.apiKey}"` : '';
   return <div className="mx-auto max-w-[1080px]">
       <PageHeader eyebrow="Control plane configuration" title="Settings" detail="Manage the shared API-key transport and server endpoint for enrolled Windows clients." action={<AdminPasswordPanel />} />
-    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading && !initialized ? <LoadingRows count={4} /> : <form onSubmit={save} className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]"><div className="space-y-6">
-       <section data-testid="panel-api-key-transport" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Shared API key transport</h2><p className="mt-1 text-xs text-[#87958e]">Clients identify by hostname and use a shared key. The server keeps a hash for authentication and an encrypted copy for intentional administrator recovery.</p></div></div><div className="flex items-center justify-between rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div><div className="text-xs font-bold text-[#38534a]">Key status</div><div data-testid="status-shared-api-key" className="mt-1 text-[10px] text-[#28745b]">{rotation ? 'New key ready for silent install' : form.apiKeyConfigured ? `Configured · rotated ${formatTime(form.apiKeyLastRotatedAt)}` : 'Not configured'}</div></div><Button type="button" variant="secondary" data-testid="button-rotate-api-key" onClick={rotateKey} disabled={rotate.isPending}><RotateCcw size={13} />{rotate.isPending ? 'Generating…' : 'Rotate key'}</Button></div>{rotation && <div className="mt-4 rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">One-time installation command</div><code data-testid="text-silent-install-command" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-2 font-mono text-[11px] leading-5 text-[#586c6d]">{installCommand}</code><Button type="button" variant="secondary" className="mt-3" data-testid="button-copy-install-command" onClick={() => { void navigator.clipboard?.writeText(installCommand); }}>Copy command</Button><div className="mt-2 text-[10px] leading-4 text-[#8f766b]">The API key is returned once. The client installer must encrypt it on the machine; the server hostname remains clear text in the client configuration.</div></div>}</section>
-      <section data-testid="panel-server-endpoint" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#fff0d5] text-[#94661a]"><Globe2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Server hostname and endpoint</h2><p className="mt-1 text-xs text-[#87958e]">The hostname is safe to keep in clear text so the Windows service can locate this Kubernetes-hosted control plane.</p></div></div><label className="block max-w-sm"><span className="field-label">Server hostname</span><input data-testid="input-server-hostname" value={serverHostname} onChange={(e) => setServerHostname(e.target.value)} className="field-input font-mono" /></label><div className="mt-4 max-w-sm rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div className="field-label">Client sync connection</div><div className="mt-1 font-mono text-xs font-bold text-[#38534a]">HTTPS · TCP 443</div></div></section>
-       <section data-testid="panel-client-version" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Upload size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Desired client version</h2><p className="mt-1 text-xs text-[#87958e]">Configure the expected version for the NemesysV2 Windows client. Outdated clients are tracked in the Client updates view.</p></div></div><label className="block max-w-sm"><span className="field-label">Desired version</span><input data-testid="input-desired-client-version" required pattern="^\d+(?:\.\d+)*$" value={form.desiredClientVersion || ''} onChange={(e) => set('desiredClientVersion', e.target.value)} className="field-input font-mono" placeholder="1.0.0" /></label></section>
-       <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><Activity size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Client monitoring cadence</h2><p className="mt-1 text-xs text-[#87958e]">The Windows service checks every 5 minutes normally and every 30 seconds while any enabled application policy is in Update Mode. Random jitter prevents synchronized polling.</p></div></div></section>
-       <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Settings2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Administration channel</h2><p className="mt-1 text-xs text-[#87958e]">Protect the control center session and keep client transport separate.</p></div></div><SettingToggle label="Admin HTTPS" detail="Protect the control center session with HTTPS." value={form.adminHttpsEnabled} onChange={(value) => set('adminHttpsEnabled', value)} testId="toggle-admin-https" /><div className="mt-3 rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 text-xs"><div className="font-bold text-[#38534a]">Shared API-key client access</div><div className="mt-1 text-[10px] text-[#87958e]">The server stores a SHA-256 hash; clients authenticate with the encrypted local key and hostname identity.</div></div></section></div><div className="space-y-4"><div className="sticky top-[94px] rounded-xl border border-[#dbe3dd] bg-[#203c4a] p-5 text-[#edf5ee] shadow-[0_7px_25px_rgba(29,55,63,.1)]"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ec5ad]"><ShieldCheck size={14} /> Connection posture</div><div className="mt-4 space-y-3"><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Server endpoint</span><span data-testid="text-server-endpoint" className="font-mono font-bold text-[#b9e7ca]">{serverHostname}:{form.syncPort}</span></div><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Client identity</span><span className="font-mono font-bold text-[#b9e7ca]">HOSTNAME</span></div><div className="flex items-center justify-between text-xs"><span className="text-[#aec3bd]">Monitoring cadence</span><span className="font-mono font-bold text-[#b9e7ca]">5m / 30s Update Mode</span></div></div><Button type="submit" disabled={update.isPending} className="mt-6 w-full"><Save size={14} />{update.isPending ? 'Applying changes…' : 'Save settings'}</Button>{feedback && <div className="mt-3 flex gap-2 rounded-lg bg-[#2b584b] px-3 py-2 text-[11px] leading-4 text-[#bde8cb]"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{feedback}</div>}</div><div className="rounded-xl border border-[#dbe3dd] bg-[#fbfcf8] p-4"><div className="flex gap-2 text-xs font-bold text-[#486159]"><CircleHelp size={15} className="text-[#5d947b]" /> Configuration status</div><p className="mt-2 text-[11px] leading-5 text-[#84928c]">Hostname is supplied by the administrator, key rotation returns the value once, and all close timeouts and Update Mode actions are configured per software policy.</p></div></div></form>}
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading && !initialized ? <LoadingRows count={4} /> : <div className="grid gap-6 lg:grid-cols-[1.25fr_.75fr]"><div className="space-y-6">
+       <form id="server-settings-form" onSubmit={save} className="space-y-6">
+         <section data-testid="panel-api-key-transport" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><LockKeyhole size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Shared API key transport</h2><p className="mt-1 text-xs text-[#87958e]">Clients identify by hostname and use a shared key. The server keeps a hash for authentication and an encrypted copy for intentional administrator recovery.</p></div></div><div className="flex items-center justify-between rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div><div className="text-xs font-bold text-[#38534a]">Key status</div><div data-testid="status-shared-api-key" className="mt-1 text-[10px] text-[#28745b]">{rotation ? 'New key ready for silent install' : form.apiKeyConfigured ? `Configured · rotated ${formatTime(form.apiKeyLastRotatedAt)}` : 'Not configured'}</div></div><Button type="button" variant="secondary" data-testid="button-rotate-api-key" onClick={rotateKey} disabled={rotate.isPending}><RotateCcw size={13} />{rotate.isPending ? 'Generating…' : 'Rotate key'}</Button></div>{rotation && <div className="mt-4 rounded-lg border border-[#e4c6b6] bg-[#fff5ee] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#a45d3e]">One-time installation command</div><code data-testid="text-silent-install-command" className="mt-2 block break-all rounded-md bg-[#fffdf8] p-2 font-mono text-[11px] leading-5 text-[#586c6d]">{installCommand}</code><Button type="button" variant="secondary" className="mt-3" data-testid="button-copy-install-command" onClick={() => { void navigator.clipboard?.writeText(installCommand); }}>Copy command</Button><div className="mt-2 text-[10px] leading-4 text-[#8f766b]">The API key is returned once. The client installer must encrypt it on the machine; the server hostname remains clear text in the client configuration.</div></div>}</section>
+         <section data-testid="panel-server-endpoint" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#fff0d5] text-[#94661a]"><Globe2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Server hostname and endpoint</h2><p className="mt-1 text-xs text-[#87958e]">The hostname is safe to keep in clear text so the Windows service can locate this Kubernetes-hosted control plane.</p></div></div><label className="block max-w-sm"><span className="field-label">Server hostname</span><input data-testid="input-server-hostname" value={serverHostname} onChange={(e) => setServerHostname(e.target.value)} className="field-input font-mono" /></label><div className="mt-4 max-w-sm rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3"><div className="field-label">Client sync connection</div><div className="mt-1 font-mono text-xs font-bold text-[#38534a]">HTTPS · TCP 443</div></div></section>
+         <section data-testid="panel-client-version" className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Upload size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Desired client version</h2><p className="mt-1 text-xs text-[#87958e]">Configure the expected version for the NemesysV2 Windows client. Outdated clients are tracked in the Client updates view.</p></div></div><label className="block max-w-sm"><span className="field-label">Desired version</span><input data-testid="input-desired-client-version" required pattern="^\d+(?:\.\d+)*$" value={form.desiredClientVersion || ''} onChange={(e) => set('desiredClientVersion', e.target.value)} className="field-input font-mono" placeholder="1.0.0" /></label></section>
+         <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#dfeef1] text-[#286b76]"><Activity size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Client monitoring cadence</h2><p className="mt-1 text-xs text-[#87958e]">The Windows service checks every 5 minutes normally and every 30 seconds while any enabled application policy is in Update Mode. Random jitter prevents synchronized polling.</p></div></div></section>
+         <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3eaf3] text-[#405e80]"><Settings2 size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Administration channel</h2><p className="mt-1 text-xs text-[#87958e]">Protect the control center session and keep client transport separate.</p></div></div><SettingToggle label="Admin HTTPS" detail="Protect the control center session with HTTPS." value={form.adminHttpsEnabled} onChange={(value) => set('adminHttpsEnabled', value)} testId="toggle-admin-https" /><div className="mt-3 rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-3 text-xs"><div className="font-bold text-[#38534a]">Shared API-key client access</div><div className="mt-1 text-[10px] text-[#87958e]">The server stores a SHA-256 hash; clients authenticate with the encrypted local key and hostname identity.</div></div></section>
+       </form>
+
+       <AdfsSettingsPanel />
+
+       </div><div className="space-y-4"><div className="sticky top-[94px] rounded-xl border border-[#dbe3dd] bg-[#203c4a] p-5 text-[#edf5ee] shadow-[0_7px_25px_rgba(29,55,63,.1)]"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ec5ad]"><ShieldCheck size={14} /> Connection posture</div><div className="mt-4 space-y-3"><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Server endpoint</span><span data-testid="text-server-endpoint" className="font-mono font-bold text-[#b9e7ca]">{serverHostname}:{form.syncPort}</span></div><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Client identity</span><span className="font-mono font-bold text-[#b9e7ca]">HOSTNAME</span></div><div className="flex items-center justify-between text-xs"><span className="text-[#aec3bd]">Monitoring cadence</span><span className="font-mono font-bold text-[#b9e7ca]">5m / 30s Update Mode</span></div></div><Button form="server-settings-form" type="submit" disabled={update.isPending} className="mt-6 w-full"><Save size={14} />{update.isPending ? 'Applying changes…' : 'Save server settings'}</Button>{feedback && <div className="mt-3 flex gap-2 rounded-lg bg-[#2b584b] px-3 py-2 text-[11px] leading-4 text-[#bde8cb]"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{feedback}</div>}</div><div className="rounded-xl border border-[#dbe3dd] bg-[#fbfcf8] p-4"><div className="flex gap-2 text-xs font-bold text-[#486159]"><CircleHelp size={15} className="text-[#5d947b]" /> Configuration status</div><p className="mt-2 text-[11px] leading-5 text-[#84928c]">Hostname is supplied by the administrator, key rotation returns the value once, and all close timeouts and Update Mode actions are configured per software policy.</p></div></div></div>}
   </div>;
 }
 

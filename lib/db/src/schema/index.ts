@@ -155,6 +155,36 @@ export const sslSettingsTable = pgTable("nemesys_ssl_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const adfsSettingsTable = pgTable("nemesys_adfs_settings", {
+  id: text("id").primaryKey(),
+  enabled: boolean("enabled"),
+  displayName: text("display_name"),
+  issuer: text("issuer"),
+  discoveryUrl: text("discovery_url"),
+  clientId: text("client_id"),
+  clientSecretEncrypted: text("client_secret_encrypted"),
+  clientSecretCleared: boolean("client_secret_cleared"),
+  redirectUri: text("redirect_uri"),
+  scopes: text("scopes"),
+  usernameClaim: text("username_claim"),
+  emailClaim: text("email_claim"),
+  displayNameClaim: text("display_name_claim"),
+  caCertificatePem: text("ca_certificate_pem"),
+  caCertificateCleared: boolean("ca_certificate_cleared"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const adfsIdentityMappingsTable = pgTable("nemesys_adfs_identity_mappings", {
+  id: text("id").primaryKey(),
+  issuer: text("issuer").notNull(),
+  subject: text("subject").notNull(),
+  adminUserId: text("admin_user_id").notNull().references(() => adminUsersTable.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  issuerSubjectUnique: unique().on(table.issuer, table.subject),
+  adminUserUnique: unique().on(table.adminUserId),
+}));
+
 export const insertClientSchema = createInsertSchema(clientsTable);
 export const insertSoftwarePolicySchema = createInsertSchema(softwarePoliciesTable);
 export const insertAuditEntrySchema = createInsertSchema(auditEntriesTable);
@@ -167,6 +197,8 @@ export type ServerSettings = typeof serverSettingsTable.$inferSelect;
 export type AdminUser = typeof adminUsersTable.$inferSelect;
 export type LdapSettings = typeof ldapSettingsTable.$inferSelect;
 export type SslSettings = typeof sslSettingsTable.$inferSelect;
+export type AdfsSettings = typeof adfsSettingsTable.$inferSelect;
+export type AdfsIdentityMapping = typeof adfsIdentityMappingsTable.$inferSelect;
 export type InsertClient = z.infer<typeof insertClientSchema>;
 export type InsertSoftwarePolicy = z.infer<typeof insertSoftwarePolicySchema>;
 export type InsertAuditEntry = z.infer<typeof insertAuditEntrySchema>;

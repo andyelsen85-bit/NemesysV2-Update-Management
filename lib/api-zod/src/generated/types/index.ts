@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './adfsAuthProviderConfig';
+export * from './adfsSettings';
+export * from './adfsSettingsInput';
 export * from './administratorUser';
 export * from './administratorUserInput';
 export * from './administratorUserSource';
@@ -53,6 +56,7 @@ export * from './softwarePolicyInputRuleType';
 export * from './softwarePolicyRuleType';
 export * from './sslSettings';
 export * from './sslSettingsInput';
+export * from './startAdfsLoginParams';
 export * from './syncConfig';
 export * from './syncReportInput';
 export * from './syncReportInputResult';

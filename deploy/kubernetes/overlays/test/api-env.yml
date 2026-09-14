@@ -8,6 +8,23 @@ data:
   NODE_ENV: "production"
   PORT: "8081"
   TLS_TERMINATION: "proxy"
+  # Optional non-secret AD FS fallbacks. Database settings take precedence.
+  # Uncomment and replace the example values only through your deployment
+  # configuration process. Keep client secrets and certificate PEM out of Git.
+  # ADFS_ENABLED: "false"
+  # ADFS_DISPLAY_NAME: "Sign in with AD FS"
+  # ADFS_ISSUER: "https://adfs.example.invalid/adfs"
+  # ADFS_DISCOVERY_URL: "https://adfs.example.invalid/adfs/.well-known/openid-configuration"
+  # ADFS_CLIENT_ID: "replace-with-adfs-client-id"
+  # ADFS_REDIRECT_URI: "https://updates.example.invalid/api/auth/adfs/callback"
+  # ADFS_SCOPES: "openid profile email"
+  # ADFS_USERNAME_CLAIM: "upn"
+  # ADFS_EMAIL_CLAIM: "email"
+  # ADFS_DISPLAY_NAME_CLAIM: "name"
+  # ADFS_CLIENT_SECRET is optional for confidential clients; provide it only
+  # through protected secret management. ADFS_CA_CERT_PEM is also intentionally
+  # omitted here; configure a validated PEM through the GUI or protected
+  # environment management when an internal CA is required.
 ---
 apiVersion: v1
 kind: Secret

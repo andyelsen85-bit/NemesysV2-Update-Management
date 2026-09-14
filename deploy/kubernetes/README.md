@@ -27,7 +27,10 @@ Before applying the test overlay:
    is intentionally not included in the Kustomization.
 5. Replace the example values in `overlays/test/api-env.yml` and
    `overlays/test/pg-env.yml`. The password in `DATABASE_URL` must match
-   `POSTGRES_PASSWORD`.
+   `POSTGRES_PASSWORD`. The API environment file includes commented,
+   non-secret AD FS fallback examples; configure real values through the GUI or
+   cluster configuration/secret management, never by committing credentials or
+   certificates.
 6. Set `TLS_HOSTNAME` in `base/web-env.yml` (or patch it in an overlay) to the
    public DNS name used to reach the `web` Service.
 7. Ensure the `nemesys` namespace exists. For ArgoCD, set
@@ -66,6 +69,11 @@ and drop columns; it also needs `CREATE` on the `public` schema for fresh
 installations and normal read/write permissions for data normalization. The API
 startup probe allows up to 15 minutes for migration and database-lock waits
 before Kubernetes enables liveness checks.
+
+The same startup process applies an additive automatic schema migration for
+AD FS settings and external identity mappings. It preserves existing
+authentication records; no separate AD FS SQL migration is required. Take a
+normal PostgreSQL backup before deploying the full-stack release.
 
 Fresh installations start without demo clients or sample application policies.
 `migrations/005-nemesys-v2-policy-contract.sql` remains available as an
@@ -115,6 +123,12 @@ kubectl apply -k deploy/kubernetes/overlays/test
 kubectl -n nemesys rollout status deployment/nemesys-deployment
 ```
 
+AD FS changes are a full-stack change. Mirror **both the API image and the
+console image** to Nexus after building the release, update both immutable
+image tags, and roll them out together. The console contains the AD FS login
+button and automatic reauthentication behavior; the API owns OIDC validation
+and settings.
+
 The base deployment contains both the API and web containers, matching the
 Change Manager pattern. Production will be added later as a separate overlay
 that points `DATABASE_URL` to the Patroni service and does not include the test
@@ -150,3 +164,9 @@ PVC, and the console validates and reloads Nginx when those files change.
 Do not put certificates or private keys in Git or create a Kubernetes TLS
 Secret for this deployment. The certificate must cover the real public DNS
 name.
+
+For AD FS registration, use the public HTTPS callback
+`https://<public-nemesys-host>/api/auth/adfs/callback`; never use the internal
+API Service address. See [`docs/adfs.md`](../../docs/adfs.md) for application
+group registration, PKCE/confidential-client setup, claims, CA trust, and
+rollout troubleshooting.

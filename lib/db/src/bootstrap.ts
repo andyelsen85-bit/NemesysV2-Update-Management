@@ -125,6 +125,36 @@ const schemaStatements = [
     hsts_enabled boolean DEFAULT false NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_adfs_settings (
+    id text PRIMARY KEY NOT NULL,
+    enabled boolean,
+    display_name text,
+    issuer text,
+    discovery_url text,
+    client_id text,
+    client_secret_encrypted text,
+    client_secret_cleared boolean,
+    redirect_uri text,
+    scopes text,
+    username_claim text,
+    email_claim text,
+    display_name_claim text,
+    ca_certificate_pem text,
+    ca_certificate_cleared boolean,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_adfs_identity_mappings (
+    id text PRIMARY KEY NOT NULL,
+    issuer text NOT NULL,
+    subject text NOT NULL,
+    admin_user_id text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT nemesys_adfs_identity_mappings_issuer_subject_unique UNIQUE (issuer, subject),
+    CONSTRAINT nemesys_adfs_identity_mappings_admin_user_unique UNIQUE (admin_user_id)
+  )`,
+  `ALTER TABLE public.nemesys_adfs_settings
+    ADD COLUMN IF NOT EXISTS client_secret_cleared boolean,
+    ADD COLUMN IF NOT EXISTS ca_certificate_cleared boolean`,
   `DO $$
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_directory_computer_groups_computer_fk') THEN
@@ -146,6 +176,11 @@ const schemaStatements = [
       ALTER TABLE public.nemesys_software_policy_target_groups
         ADD CONSTRAINT nemesys_software_policy_target_groups_group_fk
         FOREIGN KEY (group_id) REFERENCES public.nemesys_directory_groups(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'nemesys_adfs_identity_mappings_admin_user_fk') THEN
+      ALTER TABLE public.nemesys_adfs_identity_mappings
+        ADD CONSTRAINT nemesys_adfs_identity_mappings_admin_user_fk
+        FOREIGN KEY (admin_user_id) REFERENCES public.nemesys_admin_users(id) ON DELETE CASCADE;
     END IF;
   END $$`,
   `ALTER TABLE public.nemesys_clients
