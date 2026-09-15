@@ -25,6 +25,13 @@ import {
 } from "../lib/adfs-security";
 import { adfsDiagnosticCode, matchExistingAdfsAdmin } from "../lib/adfs-helpers";
 import { setApplicationSession } from "./auth";
+import {
+  adfsCallbackRateLimiter,
+  adfsStartRateLimiter,
+  clearDistributedLoginFailures,
+  recordDistributedLoginFailure,
+  requireDistributedLoginAvailable,
+} from "../lib/login-security";
 
 const router: IRouter = Router();
 
@@ -87,7 +94,7 @@ router.get("/adfs/config", async (_req, res): Promise<void> => {
   });
 });
 
-router.get("/adfs/start", async (req, res): Promise<void> => {
+router.get("/adfs/start", adfsStartRateLimiter(), async (req, res): Promise<void> => {
   const settings = await getAdfsSettings();
   if (!isAdfsConfigured(settings)) {
     res.status(404).json({ error: "AD FS authentication is not configured." });
@@ -119,12 +126,14 @@ router.get("/adfs/start", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/adfs/callback", async (req, res): Promise<void> => {
+router.get("/adfs/callback", adfsCallbackRateLimiter(), async (req, res): Promise<void> => {
+  if (!await requireDistributedLoginAvailable(req, res, "callback", "adfs")) return;
   const stateCookie = req.cookies?.[ADFS_STATE_COOKIE] as string | undefined;
   const state = decodeAdfsState(stateCookie);
   const queryState = typeof req.query.state === "string" ? req.query.state : undefined;
   res.clearCookie(ADFS_STATE_COOKIE, { httpOnly: true, sameSite: "lax", path: "/" });
   if (!state || !sameSecret(state.state, queryState)) {
+    await recordDistributedLoginFailure(req, "callback", "adfs");
     req.log.warn("AD FS callback state validation failed");
     res.redirect(302, errorRedirect("/", "validation"));
     return;
@@ -162,7 +171,8 @@ router.get("/adfs/callback", async (req, res): Promise<void> => {
       settings.emailClaim,
       settings.displayNameClaim,
     );
-    setApplicationSession(req, res, user.username);
+    await clearDistributedLoginFailures(req, "callback", "adfs");
+    await setApplicationSession(req, res, user.username, "adfs");
     res.cookie(ADFS_LOGIN_PREFERENCE_COOKIE, "adfs", {
       httpOnly: false,
       sameSite: "lax",
@@ -172,6 +182,7 @@ router.get("/adfs/callback", async (req, res): Promise<void> => {
     });
     res.redirect(302, safeLocalReturnTo(state.returnTo));
   } catch (error) {
+    await recordDistributedLoginFailure(req, "callback", "adfs");
     req.log.warn({
       errorType: error instanceof Error ? error.name : "UnknownError",
       diagnosticCode: adfsDiagnosticCode(error),

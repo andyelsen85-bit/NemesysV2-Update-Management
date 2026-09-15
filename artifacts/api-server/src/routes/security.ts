@@ -9,7 +9,6 @@ import { materializeTlsCredentials, usesProxyTlsTermination } from "../lib/ssl";
 import { syncDirectoryCache, testLdapConnection } from "../lib/ldap";
 import { adfsSettingsDto, getAdfsSettings, validatePemCertificate } from "../lib/adfs-config";
 import { clearAdfsOidcCache } from "../lib/adfs-oidc";
-import { requireCsrf } from "../lib/csrf";
 
 const router: IRouter = Router();
 const SETTINGS_ID = "default";
@@ -19,7 +18,6 @@ router.get("/settings/adfs", requireAdmin, async (_req, res): Promise<void> => {
 });
 
 router.put("/settings/adfs", requireAdmin, async (req, res): Promise<void> => {
-  if (!requireCsrf(req, res)) return;
   const body = req.body ?? {};
   if (typeof body !== "object" || Array.isArray(body)) {
     res.status(400).json({ error: "A JSON object is required." });

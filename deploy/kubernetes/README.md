@@ -13,6 +13,15 @@ The test overlay deploys PostgreSQL, the API, and the React console. The API and
 console images are mirrored into Nexus, while PostgreSQL uses the official
 `postgres:16-alpine` image mirrored into Nexus as well.
 
+The PostgreSQL resources in this repository are for the Kubernetes test and
+integration overlay only. **Production uses the CHdN externally managed
+PostgreSQL service**, which is backed up and monitored by CHdN; production
+does not deploy `pg-deployment.yml`, use the test PostgreSQL PVC, or depend on
+the test database's single-replica availability. Configure production
+`DATABASE_URL` through protected cluster secret management and use the
+CHdN-managed service endpoint. Local development likewise uses a
+developer-provided PostgreSQL instance rather than these Kubernetes resources.
+
 Before applying the test overlay:
 
 1. Enable Actions to write packages. The workflow at
@@ -100,9 +109,11 @@ DATABASE_URL='postgresql://...' pnpm --filter @workspace/db run push
 ```
 
 Use the cluster’s secret-management process rather than committing the
-connection string to a shell history or repository. The PostgreSQL Deployment
-has one replica, so configure PostgreSQL backups and understand that this is not
-a highly available database topology.
+connection string to a shell history or repository. The test PostgreSQL
+Deployment has one replica and is not a highly available or production backup
+topology. CHdN provides backup and monitoring for the externally managed
+production PostgreSQL service; production availability and restore procedures
+follow the CHdN operational agreement.
 
 There is no Kubernetes Ingress in this deployment. Expose the `web` Service
 directly (for example with a LoadBalancer, external IP, or the cluster's
@@ -110,8 +121,19 @@ networking policy) on TCP ports `80` and `443`. The console Nginx redirects
 HTTP to HTTPS and proxies `/api/*` to the API over the Pod-local HTTP port
 `8081`. Only `/healthz` remains available over HTTP for Kubernetes probes.
 The internal `api` Service remains available on port `8080` for cluster-local
-administration and diagnostics. Runtime state is held in PostgreSQL and the
-administrator session is signed with `SESSION_SECRET`.
+administration and diagnostics. Runtime state, including revocable
+administrator sessions, is held in PostgreSQL; `SESSION_SECRET` signs the
+opaque session cookie and is also required to decrypt protected settings.
+
+Nginx access logs intentionally record the HTTP method and normalized URI path,
+not the request target or query string. Status, request timing, and upstream
+timing/status metadata remain available for operations without exposing AD FS
+callback code/state values. Run the dependency-free regression check after
+changing the container configuration:
+
+```bash
+sh deploy/docker/validate-nginx-logging.sh
+```
 
 ## Update the test image versions
 
@@ -130,9 +152,9 @@ button and automatic reauthentication behavior; the API owns OIDC validation
 and settings.
 
 The base deployment contains both the API and web containers, matching the
-Change Manager pattern. Production will be added later as a separate overlay
-that points `DATABASE_URL` to the Patroni service and does not include the test
-PostgreSQL resources.
+Change Manager pattern. The test overlay adds its own single-replica
+PostgreSQL resources; production points `DATABASE_URL` to the CHdN-managed
+PostgreSQL service and does not include those test database resources.
 
 Because the API and web containers share one Pod network namespace, the API
 listens only on HTTP port `8081`; the web console owns ports `80` and `443`.

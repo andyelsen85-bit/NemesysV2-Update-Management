@@ -4,6 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { adminUsersTable, db } from "@workspace/db";
 import { requireAdmin } from "./auth";
 import { lookupLdapUser } from "../lib/ldap";
+import { revokeDirectoryAdminSessions } from "../lib/session";
 
 const router: IRouter = Router();
 
@@ -59,7 +60,13 @@ router.patch("/users/:id", requireAdmin, async (req, res): Promise<void> => {
     res.status(400).json({ error: "isActive must be boolean." });
     return;
   }
-  const [updated] = await db.update(adminUsersTable).set({ isActive, updatedAt: new Date() }).where(eq(adminUsersTable.id, String(req.params.id))).returning();
+  const updated = await db.transaction(async (transaction) => {
+    const [row] = await transaction.update(adminUsersTable)
+      .set({ isActive, updatedAt: new Date() })
+      .where(eq(adminUsersTable.id, String(req.params.id))).returning();
+    if (row && !isActive) await revokeDirectoryAdminSessions(transaction, row.username);
+    return row;
+  });
   if (!updated) {
     res.status(404).json({ error: "Administrator not found." });
     return;
@@ -68,7 +75,12 @@ router.patch("/users/:id", requireAdmin, async (req, res): Promise<void> => {
 });
 
 router.delete("/users/:id", requireAdmin, async (req, res): Promise<void> => {
-  const [deleted] = await db.delete(adminUsersTable).where(eq(adminUsersTable.id, String(req.params.id))).returning();
+  const deleted = await db.transaction(async (transaction) => {
+    const [row] = await transaction.delete(adminUsersTable)
+      .where(eq(adminUsersTable.id, String(req.params.id))).returning();
+    if (row) await revokeDirectoryAdminSessions(transaction, row.username);
+    return row;
+  });
   if (!deleted) {
     res.status(404).json({ error: "Administrator not found." });
     return;

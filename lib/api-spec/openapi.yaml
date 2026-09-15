@@ -24,6 +24,8 @@ tags:
     description: Administrator user management
   - name: sync
     description: Client synchronization protocol
+  - name: admin
+    description: Administrator backup and restore operations
 paths:
   /healthz:
     get:
@@ -562,6 +564,52 @@ paths:
       responses:
         "204":
           description: Session ended
+  /admin/backup:
+    get:
+      operationId: downloadAdminBackup
+      tags: [admin]
+      summary: Download a complete application data backup
+      description: Downloads a versioned JSON backup of all persisted application tables. Session storage is intentionally excluded.
+      responses:
+        "200":
+          description: Application data backup
+          headers:
+            Content-Disposition:
+              description: Attachment filename for the backup
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminBackup"
+        "401":
+          description: Administrator authentication is required
+  /admin/restore:
+    post:
+      operationId: restoreAdminBackup
+      tags: [admin]
+      summary: Restore a complete application data backup
+      description: Replaces all application tables transactionally from a validated JSON backup and invalidates all sessions.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AdminRestoreInput"
+      responses:
+        "200":
+          description: Backup restored successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRestoreResult"
+        "400":
+          description: The uploaded backup is invalid
+        "401":
+          description: Administrator authentication is required
+        "403":
+          description: A valid CSRF token is required
+        "413":
+          description: The uploaded backup is too large
   /auth/adfs/config:
     get:
       operationId: getAdfsAuthProviderConfig
@@ -696,6 +744,112 @@ components:
         type: string
       description: Previously returned synchronization configuration ETag.
   schemas:
+    AdminBackup:
+      type: object
+      additionalProperties: false
+      required: [formatVersion, generatedAt, schemaManifest, tables]
+      properties:
+        formatVersion: { type: integer, const: 2 }
+        generatedAt: { type: string, format: date-time }
+        schemaManifest:
+          $ref: "#/components/schemas/AdminBackupSchemaManifest"
+        tables:
+          $ref: "#/components/schemas/AdminBackupTables"
+    AdminBackupColumn:
+      type: object
+      additionalProperties: false
+      required: [name, canonicalType, nullable, defaultExpression, generatedExpression, identity]
+      properties:
+        name: { type: string }
+        canonicalType: { type: string }
+        nullable: { type: boolean }
+        defaultExpression: { type: ["string", "null"] }
+        generatedExpression: { type: ["string", "null"] }
+        identity: { type: string, enum: [none, always, by-default] }
+    AdminBackupSchemaManifest:
+      type: object
+      additionalProperties: false
+      required:
+        - nemesys_admin_users
+        - nemesys_audit_entries
+        - nemesys_api_key_reveal_audits
+        - nemesys_clients
+        - nemesys_ldap_settings
+        - nemesys_directory_cache_status
+        - nemesys_directory_computers
+        - nemesys_directory_groups
+        - nemesys_directory_computer_groups
+        - nemesys_software_policy_target_groups
+        - nemesys_server_settings
+        - nemesys_software_policies
+        - nemesys_ssl_settings
+        - nemesys_adfs_settings
+        - nemesys_adfs_identity_mappings
+      properties:
+        nemesys_admin_users: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_audit_entries: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_api_key_reveal_audits: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_clients: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_ldap_settings: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_directory_cache_status: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_directory_computers: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_directory_groups: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_directory_computer_groups: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_software_policy_target_groups: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_server_settings: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_software_policies: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_ssl_settings: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_adfs_settings: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+        nemesys_adfs_identity_mappings: { type: array, items: { $ref: "#/components/schemas/AdminBackupColumn" } }
+    AdminBackupTables:
+      type: object
+      additionalProperties: false
+      required:
+        - nemesys_admin_users
+        - nemesys_audit_entries
+        - nemesys_api_key_reveal_audits
+        - nemesys_clients
+        - nemesys_ldap_settings
+        - nemesys_directory_cache_status
+        - nemesys_directory_computers
+        - nemesys_directory_groups
+        - nemesys_directory_computer_groups
+        - nemesys_software_policy_target_groups
+        - nemesys_server_settings
+        - nemesys_software_policies
+        - nemesys_ssl_settings
+        - nemesys_adfs_settings
+        - nemesys_adfs_identity_mappings
+      properties:
+        nemesys_admin_users: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_audit_entries: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_api_key_reveal_audits: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_clients: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_ldap_settings: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_directory_cache_status: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_directory_computers: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_directory_groups: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_directory_computer_groups: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_software_policy_target_groups: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_server_settings: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_software_policies: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_ssl_settings: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_adfs_settings: { type: array, items: { type: object, additionalProperties: true } }
+        nemesys_adfs_identity_mappings: { type: array, items: { type: object, additionalProperties: true } }
+    AdminRestoreInput:
+      type: object
+      additionalProperties: false
+      required: [file]
+      properties:
+        file:
+          type: string
+          description: Versioned application backup JSON file.
+    AdminRestoreResult:
+      type: object
+      additionalProperties: false
+      required: [restored]
+      properties:
+        restored: { type: boolean, const: true }
     ClientEnrollmentInput:
       type: object
       properties:

@@ -2,6 +2,23 @@ import { sql } from "drizzle-orm";
 import { db } from "./index";
 
 const schemaStatements = [
+  `CREATE TABLE IF NOT EXISTS public.nemesys_sessions (
+    sid varchar(255) PRIMARY KEY NOT NULL,
+    sess json NOT NULL,
+    expire timestamp(6) NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS nemesys_sessions_expire_idx
+    ON public.nemesys_sessions (expire)`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_security_buckets (
+    bucket_key text PRIMARY KEY NOT NULL,
+    bucket_kind text NOT NULL,
+    failure_count integer NOT NULL DEFAULT 0,
+    window_started_at timestamp with time zone NOT NULL DEFAULT now(),
+    locked_until timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS nemesys_security_buckets_updated_idx
+    ON public.nemesys_security_buckets (updated_at)`,
   `CREATE TABLE IF NOT EXISTS public.nemesys_admin_users (
     id text PRIMARY KEY NOT NULL,
     username text NOT NULL,
@@ -188,7 +205,38 @@ const schemaStatements = [
     ADD COLUMN IF NOT EXISTS last_successful_sync timestamp with time zone,
     ADD COLUMN IF NOT EXISTS installed_version text`,
   `ALTER TABLE public.nemesys_server_settings
-    ADD COLUMN IF NOT EXISTS desired_client_version text NOT NULL DEFAULT '1.0.0'`,
+     ADD COLUMN IF NOT EXISTS desired_client_version text NOT NULL DEFAULT '1.0.0',
+     ADD COLUMN IF NOT EXISTS admin_session_generation integer NOT NULL DEFAULT 0`,
+  `CREATE TABLE IF NOT EXISTS public.nemesys_security_state (
+     id text PRIMARY KEY NOT NULL,
+     admin_session_generation integer NOT NULL DEFAULT 0,
+     CONSTRAINT nemesys_security_state_singleton CHECK (id = 'default'),
+     CONSTRAINT nemesys_security_state_generation_nonnegative CHECK (admin_session_generation >= 0)
+   )`,
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'nemesys_security_state_singleton'
+         AND conrelid = 'public.nemesys_security_state'::regclass
+     ) THEN
+       ALTER TABLE public.nemesys_security_state
+         ADD CONSTRAINT nemesys_security_state_singleton CHECK (id = 'default');
+     END IF;
+     IF NOT EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conname = 'nemesys_security_state_generation_nonnegative'
+         AND conrelid = 'public.nemesys_security_state'::regclass
+     ) THEN
+       ALTER TABLE public.nemesys_security_state
+         ADD CONSTRAINT nemesys_security_state_generation_nonnegative
+         CHECK (admin_session_generation >= 0);
+     END IF;
+   END $$`,
+  `INSERT INTO public.nemesys_security_state (id, admin_session_generation)
+   SELECT 'default', COALESCE(MAX(admin_session_generation), 0)
+   FROM public.nemesys_server_settings
+   ON CONFLICT (id) DO NOTHING`,
   `ALTER TABLE public.nemesys_ldap_settings
     ADD COLUMN IF NOT EXISTS computer_base_dn text NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS directory_auto_sync_enabled boolean NOT NULL DEFAULT false,

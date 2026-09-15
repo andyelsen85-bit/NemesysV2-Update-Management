@@ -5,6 +5,7 @@ import authRouter from "./auth";
 import securityRouter from "./security";
 import usersRouter from "./users";
 import adfsRouter from "./adfs";
+import backupRouter from "./backup";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use("/auth", adfsRouter);
 router.use(securityRouter);
 router.use(usersRouter);
 router.use(managementRouter);
+router.use(backupRouter);
 
 export default router;

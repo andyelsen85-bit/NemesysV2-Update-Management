@@ -1,14 +1,17 @@
 import express, { type Express } from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { getSslSettings } from "./lib/ssl";
 import { ensureCsrfCookie } from "./lib/csrf";
+import { createApplicationSessionMiddleware } from "./lib/session";
+import { createCorsMiddleware, csrfProtection } from "./lib/http-security";
 
 const app: Express = express();
-app.set("trust proxy", true);
+// Nginx is the only proxy between the public listener and this sidecar.  Do
+// not trust an arbitrary-length X-Forwarded-For chain supplied by a client.
+app.set("trust proxy", 1);
 
 app.use(
   pinoHttp({
@@ -29,14 +32,16 @@ app.use(
     },
   }),
 );
-app.use(cors());
+app.use(createCorsMiddleware());
 app.use(cookieParser());
+app.use(createApplicationSessionMiddleware());
 app.use((req, res, next) => {
   ensureCsrfCookie(req, res);
   next();
 });
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(csrfProtection);
 app.use(async (req, res, next) => {
   try {
     const ssl = await getSslSettings();

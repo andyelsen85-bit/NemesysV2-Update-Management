@@ -18,12 +18,12 @@ import {
   useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey,
   useGetLdapDirectoryCacheStatus, useListLdapDirectoryGroups, useListLdapDirectoryComputers, useSyncLdapDirectory,
   getGetLdapDirectoryCacheStatusQueryKey, getListLdapDirectoryGroupsQueryKey, getListLdapDirectoryComputersQueryKey,
-  useGetAdfsAuthProviderConfig, useGetAdfsSettings, useUpdateAdfsSettings, getGetAdfsSettingsQueryKey
+  useGetAdfsAuthProviderConfig, useGetAdfsSettings, useUpdateAdfsSettings, getGetAdfsSettingsQueryKey, downloadAdminBackup, useRestoreAdminBackup
 } from '@workspace/api-client-react';
 import type {
   AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
   SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit,
-  DirectoryGroup, DirectoryComputer, AdfsSettingsInput
+  DirectoryGroup, DirectoryComputer, AdfsSettingsInput, AdminBackup, AdminRestoreInput, AdminRestoreResult
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -58,6 +58,17 @@ const navItems = [
 
 function cx(...items: Array<string | false | undefined>) {
   return items.filter(Boolean).join(' ');
+}
+
+function csrfHeaders(): HeadersInit {
+  const prefix = 'nemesys_csrf=';
+  const entry = document.cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith(prefix));
+  if (!entry) return {};
+  try {
+    return { 'X-CSRF-Token': decodeURIComponent(entry.slice(prefix.length)) };
+  } catch {
+    return {};
+  }
 }
 
 function listData<T>(value: unknown, resource: string): T[] {
@@ -277,7 +288,7 @@ function Layout({ children }: { children: ReactNode }) {
   }, []);
   const logout = async () => {
     sessionStorage.removeItem('adfs_auto_login_attempted');
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: csrfHeaders() });
     window.location.reload();
   };
   return <div className="noise min-h-[100dvh] bg-[#f4f5ef] text-[#1e3442]">
@@ -843,7 +854,7 @@ function AdminPasswordPanel() {
     setBusy(true);
     setFeedback('');
     try {
-      const response = await fetch('/api/auth/password', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const response = await fetch('/api/auth/password', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ currentPassword, newPassword }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? 'Unable to change password.');
       setCurrentPassword('');
@@ -882,7 +893,7 @@ function AdministratorsPage() {
     setBusy(true);
     setFeedback('');
     try {
-      const response = await fetch('/api/users', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username.trim() }) });
+      const response = await fetch('/api/users', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ username: username.trim() }) });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? 'Unable to add administrator.');
       setUsers((items) => [body as AdministratorUser, ...items]);
@@ -895,12 +906,12 @@ function AdministratorsPage() {
     }
   };
   const changeActive = async (user: AdministratorUser) => {
-    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ isActive: !user.isActive }) });
+    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ isActive: !user.isActive }) });
     if (response.ok) setUsers((items) => items.map((item) => item.id === user.id ? { ...item, isActive: !user.isActive } : item));
   };
   const remove = async (user: AdministratorUser) => {
     if (!window.confirm(`Remove ${user.username} from administrators?`)) return;
-    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'DELETE', credentials: 'include' });
+    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'DELETE', credentials: 'include', headers: csrfHeaders() });
     if (response.ok) setUsers((items) => items.filter((item) => item.id !== user.id));
   };
   return <div className="mx-auto max-w-[1080px]">
@@ -942,18 +953,18 @@ function SecurityPage() {
   const saveLdap = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setFeedback('');
     try {
-      const response = await fetch('/api/settings/ldap', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: ldap.enabled, url: ldap.url, bindDn: ldap.bindDn, bindPassword: ldapPassword || undefined, baseDn: ldap.baseDn, computerBaseDn: ldap.computerBaseDn, directoryAutoSyncEnabled: ldap.directoryAutoSyncEnabled, directorySyncIntervalMinutes: Number(ldap.directorySyncIntervalMinutes), userFilter: ldap.userFilter, usernameAttribute: ldap.usernameAttribute, displayNameAttribute: ldap.displayNameAttribute, emailAttribute: ldap.emailAttribute, verifyTlsCertificate: ldap.verifyTlsCertificate }) });
+      const response = await fetch('/api/settings/ldap', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ enabled: ldap.enabled, url: ldap.url, bindDn: ldap.bindDn, bindPassword: ldapPassword || undefined, baseDn: ldap.baseDn, computerBaseDn: ldap.computerBaseDn, directoryAutoSyncEnabled: ldap.directoryAutoSyncEnabled, directorySyncIntervalMinutes: Number(ldap.directorySyncIntervalMinutes), userFilter: ldap.userFilter, usernameAttribute: ldap.usernameAttribute, displayNameAttribute: ldap.displayNameAttribute, emailAttribute: ldap.emailAttribute, verifyTlsCertificate: ldap.verifyTlsCertificate }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Unable to save LDAP settings.'); setLdap(body as LdapSettings); setLdapPassword(''); setFeedback('LDAP settings saved.');
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save LDAP settings.'); } finally { setBusy(false); }
   };
   const testLdap = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true);
-    try { const response = await fetch('/api/settings/ldap/test', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ldapTest) }); const body = await response.json(); setFeedback(body.success ? body.message : `${body.stage}: ${body.message}`); } catch { setFeedback('LDAP diagnostic failed.'); } finally { setBusy(false); }
+    try { const response = await fetch('/api/settings/ldap/test', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify(ldapTest) }); const body = await response.json(); setFeedback(body.success ? body.message : `${body.stage}: ${body.message}`); } catch { setFeedback('LDAP diagnostic failed.'); } finally { setBusy(false); }
   };
   const saveSsl = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setFeedback('');
     try {
-      const response = await fetch('/api/settings/ssl', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ certificatePem, privateKeyPem, chainPem, forceHttps: ssl.forceHttps, hstsEnabled: ssl.hstsEnabled }) });
+      const response = await fetch('/api/settings/ssl', { method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ certificatePem, privateKeyPem, chainPem, forceHttps: ssl.forceHttps, hstsEnabled: ssl.hstsEnabled }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error ?? 'Unable to save SSL settings.'); setSsl(body as SslSettings); setCertificatePem(''); setPrivateKeyPem(''); setChainPem(''); setFeedback('PKI certificate saved. HTTPS activation will be applied by the server runtime or reverse proxy.');
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Unable to save SSL settings.'); } finally { setBusy(false); }
   };
@@ -1033,7 +1044,7 @@ function ApiKeyPage() {
     event.preventDefault();
     setFeedback('');
     try {
-      const response = await fetch('/api/settings/api-key', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: customKey }) });
+      const response = await fetch('/api/settings/api-key', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ apiKey: customKey }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Unable to save API key.');
       setResult(body as ApiKeyRotation);
@@ -1418,6 +1429,141 @@ function AdfsSettingsPanel() {
   );
 }
 
+
+function BackupRestorePanel() {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+
+  const restoreMutation = useRestoreAdminBackup();
+  const [file, setFile] = useState<File | null>(null);
+  const [confirmPhrase, setConfirmPhrase] = useState('');
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreSuccess, setRestoreSuccess] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    setDownloadError('');
+    try {
+      const backup = await downloadAdminBackup();
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `nemesys-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Unable to download backup.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleRestore = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || confirmPhrase !== 'RESTORE NEMESYS') return;
+
+    setRestoreError('');
+    setRestoreSuccess(false);
+
+    restoreMutation.mutate({ data: { file: file as unknown as string } }, {
+      onSuccess: () => {
+        setRestoreSuccess(true);
+        queryClient.clear();
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      },
+      onError: (err) => {
+        setRestoreError(err instanceof Error ? err.message : 'Failed to restore backup.');
+      }
+    });
+  };
+
+  return (
+    <section className="mt-6 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+      <div className="mb-5 flex items-start gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e8ebee] text-[#5b6a74]">
+          <HardDrive size={18} />
+        </div>
+        <div>
+          <h2 className="text-sm font-extrabold text-[#284139]">System backup and restore</h2>
+          <p className="mt-1 text-xs text-[#87958e]">Download a complete JSON snapshot of all application data, or restore an existing snapshot. Restoring will replace all current data.</p>
+        </div>
+      </div>
+
+      <div className="mb-6 rounded-lg border border-[#e2e9e2] bg-[#f9fbf7] p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-xs font-bold text-[#38534a]">Export current state</div>
+            <div className="mt-1 text-[10px] text-[#87958e]">Includes clients, policies, audit history, and configuration.</div>
+          </div>
+          <Button type="button" onClick={handleDownload} disabled={downloading}>
+            <HardDrive size={13} /> {downloading ? 'Downloading...' : 'Download backup'}
+          </Button>
+        </div>
+        {downloadError && <div className="mt-2 text-xs font-semibold text-[#a13a31]">{downloadError}</div>}
+      </div>
+
+      <div className="rounded-lg border border-[#e7bbb5] bg-[#fff8f6] p-4">
+        <div className="flex items-center gap-2 text-xs font-bold text-[#a13a31]">
+          <AlertTriangle size={15} /> Restore from backup
+        </div>
+        <div className="mt-2 text-[11px] leading-5 text-[#9d6a62]">
+          <strong>Warning:</strong> This is a destructive operation. All existing clients, policies, configuration, and administrator accounts will be overwritten by the backup contents. All users will be immediately signed out.
+        </div>
+
+        <form onSubmit={handleRestore} className="mt-4 space-y-4">
+          <label className="block">
+            <span className="field-label">Backup file (.json)</span>
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="mt-1 block w-full text-xs text-[#71817c] file:mr-3 file:rounded-md file:border file:border-[#e7bbb5] file:bg-[#f9e3df] file:px-3 file:py-1.5 file:text-[11px] file:font-bold file:text-[#a13a31] hover:file:bg-[#f4d5cf] file:transition-colors file:cursor-pointer"
+            />
+          </label>
+
+          {file && (
+            <label className="block">
+              <span className="field-label">Type RESTORE NEMESYS to confirm</span>
+              <input
+                required
+                type="text"
+                value={confirmPhrase}
+                onChange={(e) => setConfirmPhrase(e.target.value)}
+                placeholder="RESTORE NEMESYS"
+                className="field-input font-mono"
+                autoComplete="off"
+              />
+            </label>
+          )}
+
+          {restoreError && <div className="text-xs font-semibold text-[#a13a31]">{restoreError}</div>}
+
+          {restoreSuccess && (
+            <div className="flex items-center gap-2 text-xs font-bold text-[#2c8b63]">
+              <CheckCircle2 size={15} /> Restore complete. Signing out...
+            </div>
+          )}
+
+          {file && (
+            <Button
+              type="submit"
+              variant="danger"
+              disabled={confirmPhrase !== 'RESTORE NEMESYS' || restoreMutation.isPending || restoreSuccess}
+            >
+              {restoreMutation.isPending ? 'Restoring...' : 'Replace all data'}
+            </Button>
+          )}
+        </form>
+      </div>
+    </section>
+  );
+}
+
 function SettingsPage() {
   const query = useGetServerSettings();
   const update = useUpdateServerSettings();
@@ -1446,6 +1592,7 @@ function SettingsPage() {
        </form>
 
        <AdfsSettingsPanel />
+       <BackupRestorePanel />
 
        </div><div className="space-y-4"><div className="sticky top-[94px] rounded-xl border border-[#dbe3dd] bg-[#203c4a] p-5 text-[#edf5ee] shadow-[0_7px_25px_rgba(29,55,63,.1)]"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ec5ad]"><ShieldCheck size={14} /> Connection posture</div><div className="mt-4 space-y-3"><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Server endpoint</span><span data-testid="text-server-endpoint" className="font-mono font-bold text-[#b9e7ca]">{serverHostname}:{form.syncPort}</span></div><div className="flex items-center justify-between border-b border-[#365563] pb-3 text-xs"><span className="text-[#aec3bd]">Client identity</span><span className="font-mono font-bold text-[#b9e7ca]">HOSTNAME</span></div><div className="flex items-center justify-between text-xs"><span className="text-[#aec3bd]">Monitoring cadence</span><span className="font-mono font-bold text-[#b9e7ca]">5m / 30s Update Mode</span></div></div><Button form="server-settings-form" type="submit" disabled={update.isPending} className="mt-6 w-full"><Save size={14} />{update.isPending ? 'Applying changes…' : 'Save server settings'}</Button>{feedback && <div className="mt-3 flex gap-2 rounded-lg bg-[#2b584b] px-3 py-2 text-[11px] leading-4 text-[#bde8cb]"><CheckCircle2 size={14} className="mt-0.5 shrink-0" />{feedback}</div>}</div><div className="rounded-xl border border-[#dbe3dd] bg-[#fbfcf8] p-4"><div className="flex gap-2 text-xs font-bold text-[#486159]"><CircleHelp size={15} className="text-[#5d947b]" /> Configuration status</div><p className="mt-2 text-[11px] leading-5 text-[#84928c]">Hostname is supplied by the administrator, key rotation returns the value once, and all close timeouts and Update Mode actions are configured per software policy.</p></div></div></div>}
   </div>;

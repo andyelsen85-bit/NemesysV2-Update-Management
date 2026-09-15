@@ -23,6 +23,9 @@ import type {
   AdfsAuthProviderConfig,
   AdfsSettings,
   AdfsSettingsInput,
+  AdminBackup,
+  AdminRestoreInput,
+  AdminRestoreResult,
   AdministratorUser,
   AdministratorUserInput,
   AdministratorUserUpdate,
@@ -2898,6 +2901,158 @@ export const useLogout = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getLogoutMutationOptions(options));
+    }
+
+export const getDownloadAdminBackupUrl = () => {
+
+
+
+
+  return `/api/admin/backup`
+}
+
+/**
+ * Downloads a versioned JSON backup of all persisted application tables. Session storage is intentionally excluded.
+ * @summary Download a complete application data backup
+ */
+export const downloadAdminBackup = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminBackup> => {
+
+  return customFetch<AdminBackup>(getDownloadAdminBackupUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadAdminBackupQueryKey = () => {
+    return [
+    `/api/admin/backup`
+    ] as const;
+    }
+
+
+export const getDownloadAdminBackupQueryOptions = <TData = Awaited<ReturnType<typeof downloadAdminBackup>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadAdminBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadAdminBackupQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadAdminBackup>>> = ({ signal }) => downloadAdminBackup({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadAdminBackup>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadAdminBackupQueryResult = NonNullable<Awaited<ReturnType<typeof downloadAdminBackup>>>
+export type DownloadAdminBackupQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download a complete application data backup
+ */
+
+export function useDownloadAdminBackup<TData = Awaited<ReturnType<typeof downloadAdminBackup>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadAdminBackup>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadAdminBackupQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRestoreAdminBackupUrl = () => {
+
+
+
+
+  return `/api/admin/restore`
+}
+
+/**
+ * Replaces all application tables transactionally from a validated JSON backup and invalidates all sessions.
+ * @summary Restore a complete application data backup
+ */
+export const restoreAdminBackup = async (adminRestoreInput: AdminRestoreInput, options?: Parameters<typeof customFetch>[1]): Promise<AdminRestoreResult> => {
+    const formData = new FormData();
+formData.append(`file`, adminRestoreInput.file);
+
+  return customFetch<AdminRestoreResult>(getRestoreAdminBackupUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getRestoreAdminBackupMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreAdminBackup>>, TError,{data: BodyType<AdminRestoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof restoreAdminBackup>>, TError,{data: BodyType<AdminRestoreInput>}, TContext> => {
+
+const mutationKey = ['restoreAdminBackup'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof restoreAdminBackup>>, {data: BodyType<AdminRestoreInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  restoreAdminBackup(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RestoreAdminBackupMutationResult = NonNullable<Awaited<ReturnType<typeof restoreAdminBackup>>>
+    export type RestoreAdminBackupMutationBody = BodyType<AdminRestoreInput>
+    export type RestoreAdminBackupMutationError = ErrorType<void>
+
+    /**
+ * @summary Restore a complete application data backup
+ */
+export const useRestoreAdminBackup = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof restoreAdminBackup>>, TError,{data: BodyType<AdminRestoreInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof restoreAdminBackup>>,
+        TError,
+        {data: BodyType<AdminRestoreInput>},
+        TContext
+      > => {
+      return useMutation(getRestoreAdminBackupMutationOptions(options));
     }
 
 export const getGetAdfsAuthProviderConfigUrl = () => {

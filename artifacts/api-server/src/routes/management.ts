@@ -16,6 +16,7 @@ import {
 import type { SoftwarePolicy as DbSoftwarePolicy } from "@workspace/db";
 import { decryptSecret, encryptSecret } from "../lib/secret-crypto";
 import { getSessionUsername, requireAdmin } from "./auth";
+import { expensiveMachineRateLimiter } from "../lib/login-security";
 import {
   CreateSoftwareBody,
   CreateSoftwareResponse,
@@ -741,7 +742,7 @@ router.get("/settings/api-key/audit", requireAdmin, async (_req, res): Promise<v
   res.json(ListClientApiKeyRevealAuditsResponse.parse(entries));
 });
 
-router.get("/sync/config", requireClientApiKey, async (req, res): Promise<void> => {
+router.get("/sync/config", expensiveMachineRateLimiter(120), requireClientApiKey, async (req, res): Promise<void> => {
   const parsed = GetSyncConfigQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -751,7 +752,7 @@ router.get("/sync/config", requireClientApiKey, async (req, res): Promise<void> 
   await sendSyncConfig(parsed.data.clientId, req, res, true);
 });
 
-router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void> => {
+router.post("/sync/enroll", expensiveMachineRateLimiter(30), requireClientApiKey, async (req, res): Promise<void> => {
   const hostname = req.header("x-nemesys-hostname")?.trim();
   if (!hostname) {
     res.status(400).json({ error: "X-Nemesys-Hostname header is required" });
@@ -820,7 +821,7 @@ router.post("/sync/enroll", requireClientApiKey, async (req, res): Promise<void>
   res.json(client);
 });
 
-router.post("/sync/report", requireClientApiKey, async (req, res): Promise<void> => {
+router.post("/sync/report", expensiveMachineRateLimiter(60), requireClientApiKey, async (req, res): Promise<void> => {
   const parsed = SubmitSyncReportBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });

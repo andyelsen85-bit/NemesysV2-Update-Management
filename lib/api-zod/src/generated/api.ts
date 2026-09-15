@@ -931,6 +931,168 @@ export const LogoutResponse = zod.void()
 
 
 /**
+ * Downloads a versioned JSON backup of all persisted application tables. Session storage is intentionally excluded.
+ * @summary Download a complete application data backup
+ */
+export const DownloadAdminBackupResponse = zod.object({
+  "formatVersion": zod.literal(2),
+  "generatedAt": zod.coerce.date(),
+  "schemaManifest": zod.object({
+  "nemesys_admin_users": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_audit_entries": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_api_key_reveal_audits": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_clients": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_ldap_settings": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_directory_cache_status": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_directory_computers": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_directory_groups": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_directory_computer_groups": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_software_policy_target_groups": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_server_settings": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_software_policies": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_ssl_settings": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_adfs_settings": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+})),
+  "nemesys_adfs_identity_mappings": zod.array(zod.object({
+  "name": zod.string(),
+  "canonicalType": zod.string(),
+  "nullable": zod.boolean(),
+  "defaultExpression": zod.string().nullable(),
+  "generatedExpression": zod.string().nullable(),
+  "identity": zod.enum(['none', 'always', 'by-default'])
+}))
+}),
+  "tables": zod.object({
+  "nemesys_admin_users": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_audit_entries": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_api_key_reveal_audits": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_clients": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_ldap_settings": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_directory_cache_status": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_directory_computers": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_directory_groups": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_directory_computer_groups": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_software_policy_target_groups": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_server_settings": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_software_policies": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_ssl_settings": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_adfs_settings": zod.array(zod.record(zod.string(), zod.unknown())),
+  "nemesys_adfs_identity_mappings": zod.array(zod.record(zod.string(), zod.unknown()))
+})
+})
+
+
+/**
+ * Replaces all application tables transactionally from a validated JSON backup and invalidates all sessions.
+ * @summary Restore a complete application data backup
+ */
+export const RestoreAdminBackupBody = zod.object({
+  "file": zod.string().describe('Versioned application backup JSON file.')
+})
+
+export const RestoreAdminBackupResponse = zod.object({
+  "restored": zod.literal(true)
+})
+
+
+/**
  * @summary Get public AD FS login provider configuration
  */
 export const GetAdfsAuthProviderConfigResponse = zod.object({

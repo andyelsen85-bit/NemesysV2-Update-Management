@@ -73,6 +73,22 @@ flowchart LR
 | `deploy/docker`             | API and web container definitions                             |
 | `deploy/kubernetes`         | Kustomize base, test overlay, and migration references        |
 
+### Database environments
+
+- **Production:** NemesysV2 uses the CHdN externally managed PostgreSQL service.
+  CHdN manages the service and provides database backup and monitoring;
+  production does not run the test PostgreSQL Deployment or rely on a
+  Kubernetes database PVC. Availability and restore procedures follow the CHdN
+  operational agreement. The production `DATABASE_URL` must point to the
+  CHdN-managed service through the deployment's protected secret management.
+- **Local development:** Developers provide a PostgreSQL instance and set
+  `DATABASE_URL` themselves. The `db push` command is for development-only
+  schema synchronization.
+- **Kubernetes test overlay:** `deploy/kubernetes/overlays/test` includes a
+  single-replica PostgreSQL 16 Deployment and PVC for test/integration use.
+  It is not a production topology and has no production backup or high
+  availability guarantee.
+
 ## Policy and enforcement model
 
 Each policy can define:
@@ -253,7 +269,7 @@ All application endpoints are mounted under `/api`.
 
 | Area                               | Authentication                            |
 | ---------------------------------- | ----------------------------------------- |
-| Administrator management endpoints | Signed HttpOnly session cookie (local, LDAP, or AD FS OIDC login) |
+| Administrator management endpoints | PostgreSQL-backed signed opaque session cookie (local, LDAP, or AD FS OIDC login) |
 | Client `/sync/*` endpoints         | Shared client API key and hostname header |
 | Health endpoint                    | Public                                    |
 
@@ -279,7 +295,17 @@ the server.
 
 ## Security model
 
-- Administrator sessions use signed HttpOnly cookies.
+- Administrator sessions use signed HttpOnly cookies as opaque session
+  identifiers backed by the PostgreSQL `nemesys_sessions` store. Sessions have
+  idle and absolute expiry limits and can be revoked centrally by deleting
+  their server-side records; the cookie is not a self-contained authorization
+  record.
+- Cookie-authenticated state-changing requests require the CSRF cookie/header
+  pair. Login and API-key-authenticated client sync are deliberately separate
+  authentication paths.
+- Credentialed browser CORS responses are emitted only for exact origins in
+  `CORS_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`) and are not a
+  wildcard authentication mechanism.
 - AD FS uses authorization-code flow with S256 PKCE, signed state, nonce, issuer/audience/JWKS validation, and the normal NemesysV2 session; upstream tokens are not persisted.
 - Client requests use a shared API key; the server stores a SHA-256 authentication hash and an encrypted recovery copy.
 - Client identity is the Windows hostname. Reported IP addresses are informational.
@@ -332,7 +358,7 @@ The `DATABASE_URL` role must:
 - have `CREATE` permission on the `public` schema for fresh installations;
 - have the normal read/write permissions required for data normalization.
 
-The base deployment places API and web containers in the same Pod. Nginx owns ports 80/443 and proxies `/api/*` to the API over Pod-local HTTP. PostgreSQL and certificate data use persistent volumes.
+The base deployment places API and web containers in the same Pod. Nginx owns ports 80/443 and proxies `/api/*` to the API over Pod-local HTTP. In the test overlay, certificate data and the test PostgreSQL data use persistent volumes; production uses the externally managed CHdN PostgreSQL service instead of the test database resources.
 
 Read [`deploy/kubernetes/README.md`](deploy/kubernetes/README.md) before applying an overlay, especially the PVC protection, certificate, secret-management, image-mirroring, and existing-database notes.
 
@@ -350,6 +376,7 @@ Use immutable SHA image tags for Kubernetes rollouts. Create a `v*` tag when pub
 - [Windows client behavior and diagnostics](clients/windows-service/README.md)
 - [Windows MSI packaging and lifecycle](installer/windows/README.md)
 - [Kubernetes deployment](deploy/kubernetes/README.md)
+- [Threat model and security guarantees](threat_model.md)
 - [AD FS OpenID Connect setup and operations](docs/adfs.md)
 - [Windows client installation notes](docs/windows-client-install.md)
 - [OpenAPI specification](lib/api-spec/openapi.yaml)

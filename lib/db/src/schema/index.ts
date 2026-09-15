@@ -68,9 +68,16 @@ export const serverSettingsTable = pgTable("nemesys_server_settings", {
   desiredClientVersion: text("desired_client_version").notNull().default("1.0.0"),
   adminUsername: text("admin_username").notNull().default("admin"),
   adminPasswordHash: text("admin_password_hash"),
+  adminSessionGeneration: integer("admin_session_generation").notNull().default(0),
   clientApiKeyHash: text("client_api_key_hash"),
   clientApiKeyEncrypted: text("client_api_key_encrypted"),
   apiKeyLastRotatedAt: timestamp("api_key_last_rotated_at", { withTimezone: true }),
+});
+
+/** Security state is deliberately not part of the application backup contract. */
+export const securityStateTable = pgTable("nemesys_security_state", {
+  id: text("id").primaryKey(),
+  adminSessionGeneration: integer("admin_session_generation").notNull().default(0),
 });
 
 export const adminUsersTable = pgTable("nemesys_admin_users", {

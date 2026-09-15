@@ -5,6 +5,109 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export type AdminBackupColumnIdentity = typeof AdminBackupColumnIdentity[keyof typeof AdminBackupColumnIdentity];
+
+
+export const AdminBackupColumnIdentity = {
+  none: 'none',
+  always: 'always',
+  'by-default': 'by-default',
+} as const;
+
+export interface AdminBackupColumn {
+  name: string;
+  canonicalType: string;
+  nullable: boolean;
+  /** @nullable */
+  defaultExpression: string | null;
+  /** @nullable */
+  generatedExpression: string | null;
+  identity: AdminBackupColumnIdentity;
+}
+
+export interface AdminBackupSchemaManifest {
+  nemesys_admin_users: AdminBackupColumn[];
+  nemesys_audit_entries: AdminBackupColumn[];
+  nemesys_api_key_reveal_audits: AdminBackupColumn[];
+  nemesys_clients: AdminBackupColumn[];
+  nemesys_ldap_settings: AdminBackupColumn[];
+  nemesys_directory_cache_status: AdminBackupColumn[];
+  nemesys_directory_computers: AdminBackupColumn[];
+  nemesys_directory_groups: AdminBackupColumn[];
+  nemesys_directory_computer_groups: AdminBackupColumn[];
+  nemesys_software_policy_target_groups: AdminBackupColumn[];
+  nemesys_server_settings: AdminBackupColumn[];
+  nemesys_software_policies: AdminBackupColumn[];
+  nemesys_ssl_settings: AdminBackupColumn[];
+  nemesys_adfs_settings: AdminBackupColumn[];
+  nemesys_adfs_identity_mappings: AdminBackupColumn[];
+}
+
+export type AdminBackupTablesNemesysAdminUsersItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysAuditEntriesItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysApiKeyRevealAuditsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysClientsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysLdapSettingsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysDirectoryCacheStatusItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysDirectoryComputersItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysDirectoryGroupsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysDirectoryComputerGroupsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysSoftwarePolicyTargetGroupsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysServerSettingsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysSoftwarePoliciesItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysSslSettingsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysAdfsSettingsItem = { [key: string]: unknown };
+
+export type AdminBackupTablesNemesysAdfsIdentityMappingsItem = { [key: string]: unknown };
+
+export interface AdminBackupTables {
+  nemesys_admin_users: AdminBackupTablesNemesysAdminUsersItem[];
+  nemesys_audit_entries: AdminBackupTablesNemesysAuditEntriesItem[];
+  nemesys_api_key_reveal_audits: AdminBackupTablesNemesysApiKeyRevealAuditsItem[];
+  nemesys_clients: AdminBackupTablesNemesysClientsItem[];
+  nemesys_ldap_settings: AdminBackupTablesNemesysLdapSettingsItem[];
+  nemesys_directory_cache_status: AdminBackupTablesNemesysDirectoryCacheStatusItem[];
+  nemesys_directory_computers: AdminBackupTablesNemesysDirectoryComputersItem[];
+  nemesys_directory_groups: AdminBackupTablesNemesysDirectoryGroupsItem[];
+  nemesys_directory_computer_groups: AdminBackupTablesNemesysDirectoryComputerGroupsItem[];
+  nemesys_software_policy_target_groups: AdminBackupTablesNemesysSoftwarePolicyTargetGroupsItem[];
+  nemesys_server_settings: AdminBackupTablesNemesysServerSettingsItem[];
+  nemesys_software_policies: AdminBackupTablesNemesysSoftwarePoliciesItem[];
+  nemesys_ssl_settings: AdminBackupTablesNemesysSslSettingsItem[];
+  nemesys_adfs_settings: AdminBackupTablesNemesysAdfsSettingsItem[];
+  nemesys_adfs_identity_mappings: AdminBackupTablesNemesysAdfsIdentityMappingsItem[];
+}
+
+export interface AdminBackup {
+  formatVersion: 2;
+  generatedAt: string;
+  schemaManifest: AdminBackupSchemaManifest;
+  tables: AdminBackupTables;
+}
+
+export interface AdminRestoreInput {
+  /** Versioned application backup JSON file. */
+  file: string;
+}
+
+export const AdminRestoreResultValue = {
+  restored: true,
+} as const;
+export type AdminRestoreResult = typeof AdminRestoreResultValue;
+
 export interface ClientEnrollmentInput {
   address?: string;
   /** @pattern ^\d+(?:\.\d+)*$ */
