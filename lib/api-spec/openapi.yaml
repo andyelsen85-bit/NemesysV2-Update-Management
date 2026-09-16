@@ -870,9 +870,10 @@ components:
         password: { type: string, minLength: 1 }
     AuthSession:
       type: object
-      required: [username]
+      required: [username, mustChangePassword]
       properties:
         username: { type: string }
+        mustChangePassword: { type: boolean }
     AdfsAuthProviderConfig:
       type: object
       required: [enabled, configured, displayName]

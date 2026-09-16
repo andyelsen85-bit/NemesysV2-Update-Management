@@ -33,6 +33,48 @@ export const APPLICATION_TABLES = [
   "nemesys_adfs_identity_mappings",
 ] as const;
 
+/**
+ * Operational tables are intentionally outside the portable application
+ * backup.  Keep this list small and reasoned: adding a public nemesys_* base
+ * table requires classifying it here or adding it to APPLICATION_TABLES.
+ */
+export const OPERATIONAL_TABLE_EXCLUSIONS = [
+  {
+    table: "nemesys_sessions",
+    reason: "Ephemeral server-side sessions are revoked, never restored.",
+  },
+  {
+    table: "nemesys_security_state",
+    reason: "The live revocation generation must survive restore and increase atomically.",
+  },
+  {
+    table: "nemesys_security_buckets",
+    reason: "Ephemeral login throttling/lockout state must not be restored.",
+  },
+] as const;
+
+export type OperationalTableExclusion = (typeof OPERATIONAL_TABLE_EXCLUSIONS)[number];
+const OPERATIONAL_TABLE_NAMES = OPERATIONAL_TABLE_EXCLUSIONS.map(({ table }) => table);
+const OPERATIONAL_TABLE_NAME_SET = new Set<string>(OPERATIONAL_TABLE_NAMES);
+
+/**
+ * Runtime schema drift guard.  This is deliberately based on PostgreSQL's
+ * base-table catalog, rather than the ORM schema, so a newly deployed table
+ * cannot silently evade backup coverage.
+ */
+export function assertBackupTableCoverage(tableNames: readonly string[]): void {
+  const classified = new Set<string>([
+    ...APPLICATION_TABLES,
+    ...OPERATIONAL_TABLE_NAMES,
+  ]);
+  const unclassified = tableNames.filter((table) => !classified.has(table));
+  if (unclassified.length > 0) {
+    throw new BackupValidationError(
+      `Unclassified public nemesys_* table(s): ${unclassified.join(", ")}.`,
+    );
+  }
+}
+
 export type ApplicationTable = (typeof APPLICATION_TABLES)[number];
 export type BackupRows = Record<ApplicationTable, Record<string, unknown>[]>;
 export type BackupIdentity = "none" | "always" | "by-default";
@@ -183,8 +225,28 @@ async function currentSchemaManifest(tx: Transaction): Promise<BackupSchemaManif
       ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
     WHERE c.table_schema = 'public'
       AND c.table_name IN (${APPLICATION_TABLES.map(quoteLiteral).join(", ")})
-    ORDER BY c.table_name, c.ordinal_position
+    UNION ALL
+    SELECT
+      t.table_name,
+      NULL AS column_name,
+      NULL AS canonical_type,
+      NULL AS nullable,
+      NULL AS default_expression,
+      NULL AS generated_expression,
+      NULL AS identity
+    FROM information_schema.tables t
+    WHERE t.table_schema = 'public'
+      AND t.table_type = 'BASE TABLE'
+      AND t.table_name LIKE 'nemesys\\_%' ESCAPE '\\'
+      AND t.table_name NOT IN (${[...APPLICATION_TABLES, ...OPERATIONAL_TABLE_NAMES].map(quoteLiteral).join(", ")})
+    ORDER BY table_name, column_name NULLS LAST
   `));
+  const discoveredUnclassified = rowsFrom(result)
+    .map((row) => (row as { table_name?: unknown }).table_name)
+    .filter((table): table is string => typeof table === "string")
+    .filter((table) => !APPLICATION_TABLES.includes(table as ApplicationTable))
+    .filter((table) => !OPERATIONAL_TABLE_NAME_SET.has(table));
+  assertBackupTableCoverage(discoveredUnclassified);
   const manifest = Object.fromEntries(
     APPLICATION_TABLES.map((table) => [table, [] as BackupColumn[]]),
   ) as BackupSchemaManifest;
@@ -343,11 +405,16 @@ export async function restoreBackup(tx: Transaction, document: BackupDocument): 
     throw new BackupValidationError("The database session security state is invalid.");
   }
   for (const table of DELETE_ORDER) {
+    if (table === "nemesys_audit_entries") continue;
     await tx.execute(sql.raw(`DELETE FROM public.${quoteIdentifier(table)}`));
   }
   for (const table of INSERT_ORDER) {
+    if (table === "nemesys_audit_entries") continue;
     await replaceTable(tx, table, document.tables[table], schemaManifest[table]);
   }
+  await tx.execute(sql`
+    SELECT public.nemesys_restore_audit_entries(${JSON.stringify(document.tables.nemesys_audit_entries)}::jsonb)
+  `);
   await repairSequences(tx);
   // Keep the legacy column synchronized for older tooling, but never read it
   // for authorization or session validation.

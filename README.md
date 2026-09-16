@@ -81,6 +81,11 @@ flowchart LR
   Kubernetes database PVC. Availability and restore procedures follow the CHdN
   operational agreement. The production `DATABASE_URL` must point to the
   CHdN-managed service through the deployment's protected secret management.
+  The privileged database migration account provisions the NOLOGIN
+  `nemesys_audit_owner` and `nemesys_app` roles. The login used by
+  `DATABASE_URL` must be granted membership in `nemesys_app`; API startup
+  verifies its audit read/routine permissions and rejects direct audit-table
+  mutation privileges before listening.
 - **Local development:** Developers provide a PostgreSQL instance and set
   `DATABASE_URL` themselves. The `db push` command is for development-only
   schema synchronization.
@@ -306,6 +311,12 @@ the server.
 - Credentialed browser CORS responses are emitted only for exact origins in
   `CORS_ALLOWED_ORIGINS` (or the legacy `ALLOWED_ORIGINS`) and are not a
   wildcard authentication mechanism.
+- Local, LDAP, and AD FS authentication entry points use PostgreSQL-backed
+  atomic rate buckets so request throttling and progressive account/IP lockout
+  remain effective across API replicas.
+- When the built-in bootstrap password is used, the local administrator is
+  restricted to session recovery and password-change routes until a new
+  password is set.
 - AD FS uses authorization-code flow with S256 PKCE, signed state, nonce, issuer/audience/JWKS validation, and the normal NemesysV2 session; upstream tokens are not persisted.
 - Client requests use a shared API key; the server stores a SHA-256 authentication hash and an encrypted recovery copy.
 - Client identity is the Windows hostname. Reported IP addresses are informational.
@@ -314,6 +325,24 @@ the server.
 - LDAP bind credentials and TLS private keys are encrypted at rest using a key derived from `SESSION_SECRET`.
 - Warning responses are accepted only from the authenticated installed companion process in the selected user session.
 - Destructive enforcement fails safely when state cannot be verified.
+- PostgreSQL triggers reject direct updates, deletes, and truncation of the
+  latest-client audit table. Only narrowly scoped, privilege-separated database
+  routines may replace a client report, remove inactive-client rows, or apply
+  validated restore data.
+
+### Application backup and restore
+
+The administrator backup contains every classified `nemesys_*` application
+table. The operational tables `nemesys_sessions` (ephemeral sessions),
+`nemesys_security_state` (the live session-revocation generation), and
+`nemesys_security_buckets` (ephemeral login throttling/lockout state) are
+explicitly excluded and are never restored. Restore validates the complete
+backup and current schema before deleting application rows, then atomically
+increments the live security generation and removes sessions. Consequently,
+sessions revoked after a backup cannot become valid after restore. Adding a
+new public `nemesys_*` base table requires classifying it as application data
+or adding an explicit operational exclusion; backup and restore fail closed
+until that classification exists.
 
 > [!IMPORTANT]
 > Private-CA certificates require the issuing CA to be installed in each Windows machine's trusted root store. Expired, untrusted, and hostname-mismatched certificates are rejected.

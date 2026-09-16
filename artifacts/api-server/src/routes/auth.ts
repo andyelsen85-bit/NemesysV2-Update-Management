@@ -28,7 +28,7 @@ export async function hashPassword(password: string): Promise<string> {
   return `scrypt$${salt}$${derived.toString("hex")}`;
 }
 
-async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
   const [, salt, expectedHex] = encoded.split("$");
   if (!salt || !expectedHex) return false;
   const actual = await scrypt(password, salt, 64) as Buffer;
@@ -36,17 +36,35 @@ async function verifyPassword(password: string, encoded: string): Promise<boolea
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+export function shouldBlockForPasswordChange(path: string): boolean {
+  return path !== "/me" && path !== "/password";
+}
+
+export function passwordChangeSessionState(mustChangePassword: boolean): { mustChangePassword: boolean } {
+  return { mustChangePassword };
+}
+
+export function localLoginMustChangePassword(localMatch: boolean, mustChangePassword: boolean): boolean {
+  return localMatch && mustChangePassword;
+}
+
+export function isLocalAuthSource(source: "local" | "ldap" | "adfs" | undefined): boolean {
+  return source === "local";
+}
+
 export async function setApplicationSession(
   req: Request,
   _res: Response,
   username: string,
   source: "local" | "ldap" | "adfs" = "local",
+  mustChangePassword = false,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     req.session.regenerate((error) => error ? reject(error) : resolve());
   });
   req.session.adminUsername = username;
   req.session.adminAuthSource = source;
+  req.session.mustChangePassword = mustChangePassword;
   req.session.createdAt = Date.now();
   req.session.adminSessionGeneration = await getAdminSessionGeneration();
   await new Promise<void>((resolve, reject) => {
@@ -96,6 +114,16 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     }
     const source = req.session.adminAuthSource;
     const isLocalAdmin = username === settings?.adminUsername && (source === "local" || !source);
+    const [localAccount] = isLocalAdmin ? await db.select({
+      mustChangePassword: adminUsersTable.mustChangePassword,
+    }).from(adminUsersTable).where(eq(adminUsersTable.username, username)).limit(1) : [];
+    if (localAccount?.mustChangePassword && shouldBlockForPasswordChange(req.path)) {
+      res.status(403).json({
+        code: "PASSWORD_CHANGE_REQUIRED",
+        error: "You must change the bootstrap password before accessing administrator routes.",
+      });
+      return;
+    }
     if (!isLocalAdmin) {
       const [directoryUser] = await db.select({ isActive: adminUsersTable.isActive })
         .from(adminUsersTable)
@@ -127,7 +155,12 @@ router.post("/login", loginRateLimiter(), async (req, res): Promise<void> => {
     adminUsername: serverSettingsTable.adminUsername,
     adminPasswordHash: serverSettingsTable.adminPasswordHash,
   }).from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  const localMatch = Boolean(settings?.adminPasswordHash && settings.adminUsername === username && await verifyPassword(password, settings.adminPasswordHash));
+  const [localAccount] = await db.select({
+    passwordHash: adminUsersTable.passwordHash,
+    mustChangePassword: adminUsersTable.mustChangePassword,
+  }).from(adminUsersTable).where(eq(adminUsersTable.username, username)).limit(1);
+  const localHash = localAccount?.passwordHash ?? settings?.adminPasswordHash;
+  const localMatch = Boolean(localHash && settings?.adminUsername === username && await verifyPassword(password, localHash));
   if (!localMatch) {
     const [ldapUser] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, username)).limit(1);
     if (!ldapUser?.isActive) {
@@ -151,11 +184,20 @@ router.post("/login", loginRateLimiter(), async (req, res): Promise<void> => {
     await setApplicationSession(req, res, username, "ldap");
   } else {
     await clearDistributedLoginFailures(req, username);
-    await setApplicationSession(req, res, username, "local");
+    await setApplicationSession(
+      req,
+      res,
+      username,
+      "local",
+      localLoginMustChangePassword(localMatch, Boolean(localAccount?.mustChangePassword)),
+    );
   }
 
   res.clearCookie(ADFS_LOGIN_PREFERENCE_COOKIE, { sameSite: "lax", path: "/" });
-  res.json({ username });
+  res.json({
+    username,
+    mustChangePassword: localLoginMustChangePassword(localMatch, Boolean(localAccount?.mustChangePassword)),
+  });
 });
 
 router.get("/me", async (req, res): Promise<void> => {
@@ -166,7 +208,13 @@ router.get("/me", async (req, res): Promise<void> => {
     else passed = true;
   });
   if (failure) throw failure;
-  if (passed) res.json({ username: getSessionUsername(req) });
+  if (passed) {
+    const username = getSessionUsername(req);
+    const [account] = username && isLocalAuthSource(req.session.adminAuthSource)
+      ? await db.select({ mustChangePassword: adminUsersTable.mustChangePassword })
+      .from(adminUsersTable).where(eq(adminUsersTable.username, username)).limit(1) : [];
+    res.json({ username, mustChangePassword: Boolean(account?.mustChangePassword) });
+  }
 });
 
 router.post("/password", requireAdmin, async (req, res): Promise<void> => {
@@ -181,7 +229,7 @@ router.post("/password", requireAdmin, async (req, res): Promise<void> => {
     adminUsername: serverSettingsTable.adminUsername,
     adminPasswordHash: serverSettingsTable.adminPasswordHash,
   }).from(serverSettingsTable).where(eq(serverSettingsTable.id, "default")).limit(1);
-  if (!username || username !== settings?.adminUsername) {
+  if (!username || !isLocalAuthSource(req.session.adminAuthSource) || username !== settings?.adminUsername) {
     res.status(403).json({ error: "Only the local administrator account can change this password." });
     return;
   }
@@ -189,10 +237,18 @@ router.post("/password", requireAdmin, async (req, res): Promise<void> => {
     res.status(401).json({ error: "Current password is invalid" });
     return;
   }
-  await db.update(serverSettingsTable)
-    .set({ adminPasswordHash: await hashPassword(newPassword) })
-    .where(eq(serverSettingsTable.id, "default"));
-  res.json({ username: settings.adminUsername });
+  const passwordHash = await hashPassword(newPassword);
+  await db.transaction(async (transaction) => {
+    await transaction.update(serverSettingsTable)
+      .set({ adminPasswordHash: passwordHash })
+      .where(eq(serverSettingsTable.id, "default"));
+    await transaction.update(adminUsersTable)
+      .set({ passwordHash, mustChangePassword: false, updatedAt: new Date() })
+      .where(eq(adminUsersTable.username, settings.adminUsername));
+  });
+  req.session.mustChangePassword = passwordChangeSessionState(false).mustChangePassword;
+  await new Promise<void>((resolve, reject) => req.session.save((error) => error ? reject(error) : resolve()));
+  res.json({ username: settings.adminUsername, mustChangePassword: false });
 });
 
 router.post("/logout", async (req, res): Promise<void> => {

@@ -12,6 +12,7 @@ declare module "express-session" {
   interface SessionData {
     adminUsername?: string;
     adminAuthSource?: "local" | "ldap" | "adfs";
+    mustChangePassword?: boolean;
     createdAt?: number;
     adminSessionGeneration?: number;
   }

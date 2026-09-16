@@ -8,4 +8,5 @@
 
 export interface AuthSession {
   username: string;
+  mustChangePassword: boolean;
 }

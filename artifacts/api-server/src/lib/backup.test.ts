@@ -4,6 +4,8 @@ import {
   BACKUP_FORMAT_VERSION,
   DELETE_ORDER,
   INSERT_ORDER,
+  OPERATIONAL_TABLE_EXCLUSIONS,
+  assertBackupTableCoverage,
   repairSequences,
   restoreBackup,
   validateBackupDocument,
@@ -19,6 +21,20 @@ function validDocument(): Record<string, unknown> {
 }
 
 describe("application backup validation", () => {
+  it("classifies every operational table and rejects unclassified drift", () => {
+    expect(OPERATIONAL_TABLE_EXCLUSIONS.map(({ table }) => table)).toEqual([
+      "nemesys_sessions",
+      "nemesys_security_state",
+      "nemesys_security_buckets",
+    ]);
+    expect(() => assertBackupTableCoverage([
+      ...APPLICATION_TABLES,
+      ...OPERATIONAL_TABLE_EXCLUSIONS.map(({ table }) => table),
+    ])).not.toThrow();
+    expect(() => assertBackupTableCoverage(["nemesys_future_table"]))
+      .toThrow(/unclassified/i);
+  });
+
   it("requires the supported version and exact application table set", () => {
     expect(validateBackupDocument(validDocument())).toBe(true);
 
@@ -156,6 +172,36 @@ describe("application restore validation", () => {
 
     await expect(restoreBackup({ execute }, document as never)).rejects.toThrow(/column set/i);
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("increments the live security generation instead of restoring backup state", async () => {
+    const document = documentWithSettingsRows([{ id: "default" }]);
+    const execute = vi.fn()
+      .mockResolvedValueOnce({
+        rows: APPLICATION_TABLES.map((table) => ({
+          table_name: table,
+          column_name: "id",
+          canonical_type: "text",
+          nullable: false,
+          default_expression: null,
+          generated_expression: null,
+          identity: "none",
+        })),
+      })
+      .mockResolvedValueOnce({
+        rows: [{
+          settings_count: 1,
+          default_settings_count: 1,
+          security_state_count: 1,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ next_generation: 42 }] })
+      .mockResolvedValue({ rows: [] });
+
+    await restoreBackup({ execute }, document as never);
+    // The generation statement is an atomic increment of the live row; it
+    // never takes a value from the uploaded server-settings row.
+    expect(JSON.stringify(execute.mock.calls[2][0])).toMatch(/admin_session_generation.*\+ 1/);
   });
 });
 

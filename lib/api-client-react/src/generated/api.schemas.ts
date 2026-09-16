@@ -127,6 +127,7 @@ export interface AuthLoginInput {
 
 export interface AuthSession {
   username: string;
+  mustChangePassword: boolean;
 }
 
 export interface AdfsAuthProviderConfig {

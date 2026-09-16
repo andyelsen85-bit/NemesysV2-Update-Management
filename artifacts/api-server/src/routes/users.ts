@@ -22,7 +22,9 @@ function userDto(user: typeof adminUsersTable.$inferSelect) {
 }
 
 router.get("/users", requireAdmin, async (_req, res): Promise<void> => {
-  const users = await db.select().from(adminUsersTable).orderBy(desc(adminUsersTable.createdAt));
+  const users = await db.select().from(adminUsersTable)
+    .where(eq(adminUsersTable.source, "ldap"))
+    .orderBy(desc(adminUsersTable.createdAt));
   res.json(users.map(userDto));
 });
 
@@ -39,6 +41,10 @@ router.post("/users", requireAdmin, async (req, res): Promise<void> => {
   }
   const [existing] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, lookup.user.username)).limit(1);
   if (existing) {
+    if (existing.source === "local") {
+      res.status(403).json({ error: "The local administrator account cannot be managed here." });
+      return;
+    }
     res.status(409).json({ error: "That administrator already exists." });
     return;
   }
@@ -60,6 +66,12 @@ router.patch("/users/:id", requireAdmin, async (req, res): Promise<void> => {
     res.status(400).json({ error: "isActive must be boolean." });
     return;
   }
+  const [existing] = await db.select({ source: adminUsersTable.source })
+    .from(adminUsersTable).where(eq(adminUsersTable.id, String(req.params.id))).limit(1);
+  if (existing?.source === "local") {
+    res.status(403).json({ error: "The local administrator account cannot be managed here." });
+    return;
+  }
   const updated = await db.transaction(async (transaction) => {
     const [row] = await transaction.update(adminUsersTable)
       .set({ isActive, updatedAt: new Date() })
@@ -75,6 +87,12 @@ router.patch("/users/:id", requireAdmin, async (req, res): Promise<void> => {
 });
 
 router.delete("/users/:id", requireAdmin, async (req, res): Promise<void> => {
+  const [existing] = await db.select({ source: adminUsersTable.source })
+    .from(adminUsersTable).where(eq(adminUsersTable.id, String(req.params.id))).limit(1);
+  if (existing?.source === "local") {
+    res.status(403).json({ error: "The local administrator account cannot be managed here." });
+    return;
+  }
   const deleted = await db.transaction(async (transaction) => {
     const [row] = await transaction.delete(adminUsersTable)
       .where(eq(adminUsersTable.id, String(req.params.id))).returning();

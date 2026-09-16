@@ -894,7 +894,8 @@ export const LoginBody = zod.object({
 })
 
 export const LoginResponse = zod.object({
-  "username": zod.string()
+  "username": zod.string(),
+  "mustChangePassword": zod.boolean()
 })
 
 
@@ -902,7 +903,8 @@ export const LoginResponse = zod.object({
  * @summary Get the current administrator session
  */
 export const GetCurrentAdministratorResponse = zod.object({
-  "username": zod.string()
+  "username": zod.string(),
+  "mustChangePassword": zod.boolean()
 })
 
 
@@ -920,7 +922,8 @@ export const ChangeAdministratorPasswordBody = zod.object({
 })
 
 export const ChangeAdministratorPasswordResponse = zod.object({
-  "username": zod.string()
+  "username": zod.string(),
+  "mustChangePassword": zod.boolean()
 })
 
 

@@ -57,12 +57,13 @@ export async function resolveAdfsAdmin(
     .where(and(eq(adfsIdentityMappingsTable.issuer, issuer), eq(adfsIdentityMappingsTable.subject, subject)))
     .limit(1);
   if (mapped) {
-    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, mapped.adminUserId)).limit(1);
-    if (!user?.isActive) throw new Error("The mapped administrator account is inactive.");
+    const [user] = await db.select().from(adminUsersTable)
+      .where(and(eq(adminUsersTable.id, mapped.adminUserId), eq(adminUsersTable.source, "ldap"))).limit(1);
+    if (!user?.isActive) throw new Error("The mapped administrator account is inactive or is not a directory administrator.");
     return user;
   }
 
-  const users = await db.select().from(adminUsersTable);
+  const users = await db.select().from(adminUsersTable).where(eq(adminUsersTable.source, "ldap"));
   const user = matchExistingAdfsAdmin(users, claims, usernameClaim, emailClaim);
 
   try {
