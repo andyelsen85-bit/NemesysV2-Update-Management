@@ -1,4 +1,967 @@
-aria-label={`Remove ${user.username}`} onClick={() => void remove(user)} className="rounded-md p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}</div>}</section>
+import { useEffect, useMemo, useState, type ButtonHTMLAttributes, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  Activity, AlertTriangle, Archive, ArrowDown, ArrowDownRight, ArrowUp, ArrowUpDown, ArrowUpRight, Ban,
+  Bell, Check, CheckCircle2, ChevronRight, CircleHelp, Clock3, Code2,
+  FileCog, FileKey2, Gauge, Globe2, HardDrive, Laptop, LockKeyhole, Menu,
+  MoreHorizontal, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Server,
+  Settings2, ShieldCheck, ShieldX, Trash2, Upload, Users, LogOut, Wifi, X, Eye, EyeOff, Copy
+} from 'lucide-react';
+import { PieChart, Pie, Cell } from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import {
+  getGetClientSyncConfigQueryKey, getGetDashboardQueryKey, getGetServerSettingsQueryKey,
+  getListAuditEntriesQueryKey, getListClientsQueryKey,
+  getListSoftwareQueryKey, useCreateSoftware, useDeleteInactiveClients, useDeleteSoftware, useGetClientApiKey, useGetDashboard, useGetServerSettings,
+  useGetClientSyncConfig, useHealthCheck, useListAuditEntries, useListClients, useListSoftware,
+  useReactivateClient, useRevokeClient, useRotateClientApiKey, useSubmitSyncReport, useUpdateServerSettings, useUpdateSoftware,
+  useRevealClientApiKey, useListClientApiKeyRevealAudits, getListClientApiKeyRevealAuditsQueryKey,
+  useGetLdapDirectoryCacheStatus, useListLdapDirectoryGroups, useListLdapDirectoryComputers, useSyncLdapDirectory,
+  getGetLdapDirectoryCacheStatusQueryKey, getListLdapDirectoryGroupsQueryKey, getListLdapDirectoryComputersQueryKey,
+  useGetAdfsAuthProviderConfig, useGetAdfsSettings, useUpdateAdfsSettings, getGetAdfsSettingsQueryKey, downloadAdminBackup, useRestoreAdminBackup
+} from '@workspace/api-client-react';
+import type {
+  AdministratorUser, ApiKeyRotation, AuditEntry, Client, ClientApiKeyStatus, ComparisonOperator, ExeCheck, IniCheck, IniRule, LdapSettings, ServerSettings,
+  SoftwarePolicy, SoftwarePolicyInput, SslSettings, SyncConfig, ApiKeyReveal, ApiKeyRevealAudit,
+  DirectoryGroup, DirectoryComputer, AdfsSettingsInput, AdminBackup, AdminRestoreInput, AdminRestoreResult
+} from '@workspace/api-client-react';
+import { ErrorBoundary } from '@/components/error-boundary';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import NotFound from '@/pages/not-found';
+import { Link, Route, Switch, Router as WouterRouter, useLocation, useParams } from 'wouter';
+import consolePackage from '../package.json';
+import './index.css';
+
+const queryClient = new QueryClient();
+const APP_VERSION = consolePackage.version;
+const comparisonOperators: Array<{ value: ComparisonOperator; label: string }> = [
+  { value: '<', label: '< less than' },
+  { value: '<=', label: '≤ less or equal' },
+  { value: '=', label: '= equal' },
+  { value: '>=', label: '≥ greater or equal' },
+  { value: '>', label: '> greater than' },
+];
+const isDottedNumericVersion = (value: string) => /^\d+(?:\.\d+)*$/.test(value);
+
+const navItems = [
+  { href: '/', label: 'Overview', icon: Gauge },
+  { href: '/clients', label: 'Clients', icon: Laptop },
+  { href: '/client-updates', label: 'Client updates', icon: Upload },
+  { href: '/software', label: 'Software policies', icon: FileCog },
+  { href: '/audit', label: 'Audit trail', icon: Archive },
+  { href: '/administrators', label: 'Administrators', icon: Users },
+  { href: '/security', label: 'Security', icon: ShieldCheck },
+  { href: '/api-key', label: 'Client API key', icon: LockKeyhole },
+  { href: '/settings', label: 'Settings', icon: Settings2 },
+];
+
+function cx(...items: Array<string | false | undefined>) {
+  return items.filter(Boolean).join(' ');
+}
+
+function csrfHeaders(): HeadersInit {
+  const prefix = 'nemesys_csrf=';
+  const entry = document.cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith(prefix));
+  if (!entry) return {};
+  try {
+    return { 'X-CSRF-Token': decodeURIComponent(entry.slice(prefix.length)) };
+  } catch {
+    return {};
+  }
+}
+
+function listData<T>(value: unknown, resource: string): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === 'object') {
+    const envelope = value as Record<string, unknown>;
+    for (const key of ['data', 'items', 'results']) {
+      if (Array.isArray(envelope[key])) return envelope[key] as T[];
+    }
+  }
+  if (value !== undefined && value !== null) {
+    console.error(`Expected ${resource} API response to be an array.`, value);
+  }
+  return [];
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(date);
+}
+
+function relativeTime(value?: string | null) {
+  if (!value) return 'No sync recorded';
+  const diff = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function initials(label: string) {
+  return label.split(/[\s_-]+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+}
+
+function StatusPill({ value, kind = 'neutral' }: { value: string; kind?: 'online' | 'warning' | 'danger' | 'success' | 'neutral' }) {
+  const styles = {
+    online: 'bg-[#dff2e9] text-[#176244] border-[#b8dfc8]',
+    warning: 'bg-[#fff0d4] text-[#8a5a08] border-[#f2d493]',
+    danger: 'bg-[#f9e1dd] text-[#9d342b] border-[#ecc0b9]',
+    success: 'bg-[#dff2e9] text-[#176244] border-[#b8dfc8]',
+    neutral: 'bg-[#e9edf0] text-[#53616d] border-[#d5dde2]',
+  };
+  return <span className={cx('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.08em]', styles[kind])}>
+    {kind === 'online' || kind === 'success' ? <CheckCircle2 size={12} /> : kind === 'danger' ? <ShieldX size={12} /> : kind === 'warning' ? <AlertTriangle size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+    {value}
+  </span>;
+}
+
+function Button({ children, variant = 'primary', className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger' }) {
+  return <button {...props} className={cx(
+    'inline-flex h-9 items-center justify-center gap-2 rounded-lg px-3.5 text-xs font-bold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#2c9a76]/35 disabled:cursor-not-allowed disabled:opacity-50',
+    variant === 'primary' && 'bg-[#167151] text-[#fffdf8] shadow-[0_2px_0_#0f523b] hover:-translate-y-px hover:bg-[#1c805e] active:translate-y-0',
+    variant === 'secondary' && 'border border-[#cad5d6] bg-[#fffdf8] text-[#253848] hover:border-[#85aa9b] hover:bg-[#f4f8f4]',
+    variant === 'ghost' && 'text-[#61717b] hover:bg-[#e9efed] hover:text-[#173f33]',
+    variant === 'danger' && 'border border-[#e7bbb5] bg-[#fff8f6] text-[#a13a31] hover:bg-[#f9e3df]',
+    className
+  )}>{children}</button>;
+}
+
+function IconMark() {
+  return <div className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-[#a6e4c6] text-[#13382f] shadow-[inset_0_-2px_0_rgba(18,61,47,.15)]">
+    <ShieldCheck size={22} strokeWidth={2.5} />
+    <span className="absolute right-[7px] top-[7px] h-1.5 w-1.5 rounded-full bg-[#e9aa38]" />
+  </div>;
+}
+
+function LoadingRows({ count = 4 }: { count?: number }) {
+  return <div className="space-y-3 animate-pulse">{Array.from({ length: count }).map((_, i) => <div key={i} className="h-14 rounded-lg bg-[#e9eeeb]" />)}</div>;
+}
+
+function ErrorState({ message = 'The control plane did not respond.', onRetry }: { message?: string; onRetry?: () => void }) {
+  return <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-[#e9c3bd] bg-[#fff8f6] p-8 text-center">
+    <div className="mb-3 rounded-full bg-[#f9e2de] p-3 text-[#a13a31]"><AlertTriangle size={22} /></div>
+    <p className="font-bold text-[#7e3029]">Unable to load this view</p>
+    <p className="mt-1 max-w-sm text-sm text-[#9d6a62]">{message}</p>
+    {onRetry && <Button variant="danger" onClick={onRetry} className="mt-4"><RotateCcw size={14} /> Try again</Button>}
+  </div>;
+}
+
+function EmptyState({ icon: Icon, title, detail, action }: { icon: typeof Search; title: string; detail: string; action?: ReactNode }) {
+  return <div className="flex min-h-[220px] flex-col items-center justify-center rounded-xl border border-dashed border-[#c9d5d0] bg-[#fbfcf8] p-8 text-center">
+    <div className="mb-3 rounded-2xl bg-[#e5f1eb] p-3 text-[#30745b]"><Icon size={23} /></div>
+    <p className="font-bold text-[#284139]">{title}</p>
+    <p className="mt-1 max-w-sm text-sm text-[#71817c]">{detail}</p>
+    {action && <div className="mt-4">{action}</div>}
+  </div>;
+}
+
+function LoginPage({ onAuthenticated }: { onAuthenticated: (mustChangePassword: boolean) => void }) {
+  const searchParams = new URLSearchParams(window.location.search);
+  const adfsError = searchParams.get('adfsError');
+  const authError = adfsError ? ({
+    unavailable: 'AD FS is temporarily unavailable. You can still use local or LDAP credentials.',
+    validation: 'The AD FS response could not be validated. Please start sign-in again.',
+    cancelled: 'AD FS sign-in was cancelled.',
+    configuration: 'AD FS is not fully configured.',
+    failed: 'AD FS sign-in could not be completed. Contact an administrator if this continues.',
+  }[adfsError] ?? 'AD FS sign-in could not be completed.') : '';
+  const adfsConfig = useGetAdfsAuthProviderConfig();
+
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [feedback, setFeedback] = useState(authError || '');
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setFeedback('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), password }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Unable to sign in.');
+      }
+      const body = await response.json().catch(() => ({})) as { mustChangePassword?: boolean };
+      onAuthenticated(Boolean(body.mustChangePassword));
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to sign in.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const adfsAvailable = adfsConfig.data?.enabled && adfsConfig.data?.configured;
+
+  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]"><div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]"><div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Control center · v{APP_VERSION}</div></div></div><div className="mt-8"><div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />Administrator access</div><h1 className="text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Sign in to control center</h1><p className="mt-2 text-sm leading-6 text-[#71817c]">Manage Windows clients, application policies, and the shared sync channel.</p></div>
+
+    {adfsAvailable && (
+      <div className="mt-6 border-b border-[#e5ebe5] pb-6">
+        <Button
+          type="button"
+          variant="secondary"
+          className="w-full justify-center shadow-[0_2px_4px_rgba(39,66,58,.04)]"
+          onClick={() => {
+            const target = new URL(window.location.href);
+            target.searchParams.delete('adfsError');
+            const returnTo = target.pathname + target.search + target.hash;
+            window.location.href = `/api/auth/adfs/start?returnTo=${encodeURIComponent(returnTo)}`;
+          }}
+        >
+          {adfsConfig.data?.displayName || 'Sign in with AD FS'}
+        </Button>
+      </div>
+    )}
+
+    <form onSubmit={submit} className={cx("space-y-4", adfsAvailable ? "mt-6" : "mt-7")}>
+      {adfsAvailable && <div className="text-center text-[10px] font-extrabold uppercase tracking-[0.15em] text-[#9ba8a1]">Or use local or LDAP credentials</div>}
+      <label className="block"><span className="field-label">Username</span><input autoFocus autoComplete="username" required data-testid="input-login-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">Password</span><input required autoComplete="current-password" type="password" data-testid="input-login-password" value={password} onChange={(event) => setPassword(event.target.value)} className="field-input" /></label>{feedback && <div role="alert" data-testid="text-login-error" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<Button type="submit" disabled={busy} className="mt-2 w-full">{busy ? 'Signing in…' : 'Sign in'}</Button></form></div></div>;
+}
+
+function AuthGate({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<'checking' | 'authenticated' | 'signed-out' | 'must-change'>('checking');
+  useEffect(() => {
+    const handleSignedOut = () => {
+      const match = document.cookie.match(/(?:^|;\s*)nemesys_login_method=adfs(?:;|$)/);
+      const attempted = sessionStorage.getItem('adfs_auto_login_attempted');
+      if (match && !attempted) {
+        sessionStorage.setItem('adfs_auto_login_attempted', 'true');
+        const target = new URL(window.location.href);
+        target.searchParams.delete('adfsError');
+        const returnTo = target.pathname + target.search + target.hash;
+        window.location.href = `/api/auth/adfs/start?returnTo=${encodeURIComponent(returnTo)}`;
+        return;
+      }
+      setState('signed-out');
+    };
+    window.addEventListener('nemesys:unauthorized', handleSignedOut);
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then(async (response) => {
+        if (response.ok) {
+          const body = await response.json().catch(() => ({})) as { mustChangePassword?: boolean };
+          sessionStorage.removeItem('adfs_auto_login_attempted');
+          setState(body.mustChangePassword ? 'must-change' : 'authenticated');
+        } else {
+          handleSignedOut();
+        }
+      })
+      .catch(handleSignedOut);
+    return () => window.removeEventListener('nemesys:unauthorized', handleSignedOut);
+  }, []);
+  if (state === 'checking') return <div className="flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef]"><div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] px-5 py-4 text-sm font-semibold text-[#536b68]">Checking administrator session…</div></div>;
+  if (state === 'signed-out') return <LoginPage onAuthenticated={(mustChange) => setState(mustChange ? 'must-change' : 'authenticated')} />;
+  if (state === 'must-change') return <ForcedPasswordChangePage onComplete={() => setState('authenticated')} />;
+  return <>{children}</>;
+}
+
+function ForcedPasswordChangePage({ onComplete }: { onComplete: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setFeedback('');
+    try {
+      const response = await fetch('/api/auth/password', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...csrfHeaders() },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? 'Unable to change password.');
+      onComplete();
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to change password.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="noise flex min-h-[100dvh] items-center justify-center bg-[#f4f5ef] px-5 text-[#1e3442]">
+    <div className="w-full max-w-md rounded-2xl border border-[#dbe3dd] bg-[#fffdf8] p-7 shadow-[0_16px_50px_rgba(39,66,58,.08)]">
+      <div className="flex items-center gap-3"><IconMark /><div><div className="text-sm font-extrabold tracking-tight text-[#1e3442]">NEMESYS<span className="text-[#2c8968]">V2</span></div><div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#83918b]">Administrator security</div></div></div>
+      <h1 className="mt-8 text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442]">Change your password</h1>
+      <p className="mt-2 text-sm leading-6 text-[#71817c]">This local administrator is using the bootstrap password. Choose a new password before continuing.</p>
+      <form onSubmit={submit} className="mt-7 space-y-4">
+        <label className="block"><span className="field-label">Current password</span><input required autoFocus autoComplete="current-password" type="password" data-testid="input-forced-current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="field-input" /></label>
+        <label className="block"><span className="field-label">New password</span><input required minLength={8} autoComplete="new-password" type="password" data-testid="input-forced-new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="field-input" /></label>
+        {feedback && <div role="alert" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}
+        <Button type="submit" disabled={busy} className="w-full">{busy ? 'Saving…' : 'Set new password'}</Button>
+      </form>
+    </div>
+  </div>;
+}
+
+function PageHeader({ eyebrow, title, detail, action }: { eyebrow: string; title: string; detail: string; action?: ReactNode }) {
+  return <header className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+    <div>
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#2f8064]"><span className="h-1.5 w-1.5 rounded-full bg-[#e3a438]" />{eyebrow}</div>
+      <h1 className="font-sans text-3xl font-extrabold tracking-[-0.045em] text-[#1e3442] md:text-[40px]">{title}</h1>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-[#71817c]">{detail}</p>
+    </div>
+    {action}
+  </header>;
+}
+
+function Layout({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [account, setAccount] = useState('administrator');
+  const health = useHealthCheck();
+  const healthOnline = health.data?.status === 'ok' || health.data?.status === 'healthy';
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' }).then(async (response) => {
+      if (response.ok) {
+        const body = await response.json() as { username?: string };
+        if (body.username) setAccount(body.username);
+      }
+    }).catch(() => undefined);
+  }, []);
+  const logout = async () => {
+    sessionStorage.removeItem('adfs_auto_login_attempted');
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: csrfHeaders() });
+    window.location.reload();
+  };
+  return <div className="noise min-h-[100dvh] bg-[#f4f5ef] text-[#1e3442]">
+    <aside className={cx('fixed inset-y-0 left-0 z-40 flex w-[258px] flex-col border-r border-[#263c4a] bg-[#172d3b] px-4 py-5 text-[#dce8e4] transition-transform duration-300 lg:translate-x-0', mobileOpen ? 'translate-x-0' : '-translate-x-full')}>
+      <div className="flex items-center gap-3 px-2">
+        <IconMark />
+        <div><div className="text-sm font-extrabold tracking-tight text-[#f1f3e8]">NEMESYS<span className="text-[#91dcb5]">V2</span></div><div className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.2em] text-[#7d9699]">Control center · v{APP_VERSION}</div></div>
+        <button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1 text-[#90a5a8] hover:bg-[#213e4d] lg:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button>
+      </div>
+      <div className="mt-10 px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#6c878d]">Operations</div>
+      <nav className="mt-3 space-y-1">
+        {navItems.map(({ href, label, icon: Icon }) => <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={cx('group flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition-colors', location === href ? 'bg-[#285246] text-[#e9f8ee] shadow-[inset_3px_0_0_#a5e3c4]' : 'text-[#a8bec0] hover:bg-[#203d4b] hover:text-[#e5f4ed]')}>
+          <Icon size={17} className={location === href ? 'text-[#a5e3c4]' : 'text-[#789699]'} /><span>{label}</span>{location === href && <ChevronRight size={15} className="ml-auto text-[#80c9a2]" />}
+        </Link>)}
+      </nav>
+      <div className="mt-auto">
+        <div className="mb-4 rounded-xl border border-[#2d4c55] bg-[#1d3945] p-3.5">
+          <div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.15em] text-[#83a5a4]">Control plane</span><span className={cx('h-2 w-2 rounded-full', health.isLoading ? 'bg-[#d49a35]' : healthOnline ? 'bg-[#7ad69d]' : 'bg-[#cf756c]')} /></div>
+          <div className="mt-2 font-mono text-xs text-[#d6e4dd]">{health.isLoading ? 'checking status' : healthOnline ? 'operational' : 'attention required'}</div>
+           <div className="mt-2 font-mono text-[10px] text-[#769394]">shared API-key channel</div>
+        </div>
+         <div className="flex items-center gap-2.5 border-t border-[#2a4551] px-2 pt-4"><div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#d4e8df] text-xs font-extrabold text-[#285b4a]">{initials(account)}</div><div className="min-w-0"><div className="truncate text-xs font-bold text-[#e4eee8]">{account}</div><div className="font-mono text-[10px] text-[#789699]">administrator</div></div><button aria-label="Sign out" data-testid="button-logout" onClick={() => void logout()} className="ml-auto rounded-md p-1 text-[#789699] hover:bg-[#294854] hover:text-white"><LogOut size={16} /></button></div>
+      </div>
+    </aside>
+    {mobileOpen && <button aria-label="Close menu overlay" data-testid="button-menu-overlay" className="fixed inset-0 z-30 bg-[#10232d]/50 lg:hidden" onClick={() => setMobileOpen(false)} />}
+    <main className="min-h-[100dvh] lg:pl-[258px]">
+      <div className="sticky top-0 z-20 flex h-[70px] items-center justify-between border-b border-[#dfe5df] bg-[#f4f5ef]/90 px-5 backdrop-blur-md md:px-9">
+        <div className="flex items-center gap-3"><button aria-label="Open navigation" data-testid="button-open-navigation" onClick={() => setMobileOpen(true)} className="rounded-lg p-2 text-[#49616a] hover:bg-[#e5ece7] lg:hidden"><Menu size={20} /></button><div className="hidden items-center gap-2 text-xs text-[#80908c] sm:flex"><span>Workspace</span><ChevronRight size={13} /><span className="font-semibold text-[#38544d]">{navItems.find((item) => item.href === location)?.label ?? 'Not found'}</span></div></div>
+        <div className="flex items-center gap-2.5"><div className="hidden items-center gap-2 rounded-lg border border-[#d8e1db] bg-[#fbfcf8] px-3 py-2 text-[11px] font-bold text-[#59706a] sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-[#39a974]" />Production environment</div><button aria-label="Notifications" data-testid="button-notifications" className="relative rounded-lg p-2 text-[#6f817d] hover:bg-[#e5ece7]"><Bell size={18} /><span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#e3a438]" /></button></div>
+      </div>
+      <div className="app-grid min-h-[calc(100dvh-70px)] px-5 py-7 md:px-9 md:py-9">{children}</div>
+    </main>
+  </div>;
+}
+
+function MetricCard({ label, value, detail, icon: Icon, tone = 'green', trend }: { label: string; value: string | number; detail: string; icon: typeof Gauge; tone?: 'green' | 'amber' | 'blue' | 'slate'; trend?: 'up' | 'down' }) {
+  const tones = { green: 'bg-[#dff2e9] text-[#237455]', amber: 'bg-[#fff0d5] text-[#94661a]', blue: 'bg-[#dfeef1] text-[#286b76]', slate: 'bg-[#e8ebee] text-[#5b6a74]' };
+  return <div className="group relative overflow-hidden rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b7cec1]">
+    <div className="flex items-start justify-between"><div className={cx('flex h-9 w-9 items-center justify-center rounded-lg', tones[tone])}><Icon size={18} /></div>{trend && <div className={cx('flex items-center gap-1 text-[10px] font-bold', trend === 'up' ? 'text-[#2c8b63]' : 'text-[#ad5b42]')}>{trend === 'up' ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}<span>today</span></div>}</div>
+    <div className="mt-5 font-mono text-[32px] font-medium tracking-[-0.06em] text-[#203946]">{value}</div><div className="mt-1 text-xs font-bold text-[#536b68]">{label}</div><div className="mt-2 text-[11px] text-[#86948e]">{detail}</div>
+    <div className="absolute -bottom-7 -right-4 h-20 w-20 rounded-full border-[12px] border-[#eff5ef] opacity-70" />
+  </div>;
+}
+
+function OverviewPage() {
+  const dashboard = useGetDashboard();
+  const clientsQuery = useListClients();
+  const softwareQuery = useListSoftware();
+  const auditQuery = useListAuditEntries({ limit: 5 });
+  const summary = dashboard.data;
+  const clients = listData<Client>(clientsQuery.data, 'clients');
+  const policies = listData<SoftwarePolicy>(softwareQuery.data, 'software policies');
+  const audits = listData<AuditEntry>(auditQuery.data, 'audit entries');
+  const attention = clients.filter((client) => client.status !== 'online');
+  const anyLoading = dashboard.isLoading || clientsQuery.isLoading || softwareQuery.isLoading || auditQuery.isLoading;
+  const retry = () => { dashboard.refetch(); clientsQuery.refetch(); softwareQuery.refetch(); auditQuery.refetch(); };
+  return <div className="mx-auto max-w-[1380px]">
+    <PageHeader eyebrow="Operational overview" title="System overview" detail="A precise read on the Windows estate, policy drift, and what needs your attention next." action={<Button variant="secondary" onClick={retry} disabled={anyLoading} data-testid="button-refresh-overview"><RefreshCw size={14} className={anyLoading ? 'animate-spin' : ''} /> Refresh data</Button>} />
+    {dashboard.isError ? <ErrorState onRetry={retry} /> : anyLoading && !summary ? <LoadingRows count={5} /> : <>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Enrolled clients" value={summary?.totalClients ?? '—'} detail={`${summary?.onlineClients ?? 0} active within 72 hours`} icon={Laptop} tone="green" trend="up" />
+        <MetricCard label="Online coverage" value={summary && summary.totalClients ? `${Math.round((summary.onlineClients / summary.totalClients) * 100)}%` : '—'} detail="clients reporting in the last 72 hours" icon={Wifi} tone="blue" />
+        <MetricCard label="Protected software" value={summary?.protectedSoftware ?? '—'} detail="active enforcement policies" icon={ShieldCheck} tone="amber" />
+        <MetricCard label="Clients reported today" value={summary?.syncsToday ?? '—'} detail={summary?.latestSync ? `last report ${relativeTime(summary.latestSync)}` : 'No report recorded'} icon={Activity} tone="slate" trend="up" />
+      </section>
+        <section data-testid="panel-application-update-mode" className="mt-6 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><h2 className="text-sm font-extrabold text-[#284139]">Application Update Mode</h2><StatusPill value={policies.some((policy) => policy.updateMode) ? 'configured' : 'standby'} kind={policies.some((policy) => policy.updateMode) ? 'success' : 'neutral'} /></div><p className="mt-1 text-xs text-[#87958e]">Update Mode is configured independently on each software policy, with its own close timeout.</p></div><Link href="/software" className="text-xs font-bold text-[#277657] hover:text-[#174f3a]">Manage application policies <ChevronRight className="ml-1 inline" size={14} /></Link></div><div className="mt-4 flex flex-wrap gap-2">{policies.filter((policy) => policy.updateMode).length === 0 ? <span className="text-[11px] text-[#87958e]">No application currently uses Update Mode.</span> : policies.filter((policy) => policy.updateMode).map((policy) => <span key={policy.id} className="rounded-full border border-[#b8dfc8] bg-[#dff2e9] px-2.5 py-1 text-[10px] font-bold text-[#176244]">{policy.name} · {policy.updateModeCloseTimeoutSeconds ?? 8}s</span>)}</div></section>
+       <section className="mt-6 grid gap-6 xl:grid-cols-[1.4fr_.9fr]">
+        <div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+          <div className="flex items-center justify-between border-b border-[#e5ebe5] px-5 py-4"><div><h2 className="text-sm font-extrabold text-[#284139]">Recent synchronization</h2><p className="mt-1 text-xs text-[#87958e]">The latest client check-ins across your estate</p></div><Link href="/audit" data-testid="link-view-audit" className="text-xs font-bold text-[#277657] hover:text-[#174f3a]">View audit trail <ChevronRight className="ml-1 inline" size={14} /></Link></div>
+          {audits.length === 0 ? <div className="p-5"><EmptyState icon={Activity} title="No synchronization history" detail="Once a client reports in, its result will appear here." /></div> : <div className="divide-y divide-[#edf0eb]">{audits.map((entry) => <AuditRow key={entry.id} entry={entry} compact />)}</div>}
+        </div>
+        <div className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]">
+          <div className="border-b border-[#e5ebe5] px-5 py-4"><h2 className="text-sm font-extrabold text-[#284139]">Attention items</h2><p className="mt-1 text-xs text-[#87958e]">Signals that may affect enforcement</p></div>
+           {attention.length === 0 ? <div className="p-5"><div className="flex flex-col items-center justify-center py-9 text-center"><div className="mb-3 rounded-full bg-[#dff2e9] p-3 text-[#247455]"><Check size={22} /></div><div className="text-sm font-bold text-[#315247]">Estate looks healthy</div><p className="mt-1 text-xs text-[#82918a]">No client access or connectivity issues detected.</p></div></div> : <div className="divide-y divide-[#edf0eb]">{attention.slice(0, 5).map((client) => <Link href="/clients" key={client.id} data-testid={`link-attention-${client.id}`} className="flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[#f8faf5]"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#fff0d5] text-[#94661a]"><AlertTriangle size={15} /></div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-[#38504b]">{client.hostname}</div><div className="mt-1 text-[11px] text-[#8a9791]">Last sync {relativeTime(client.lastSync)} · {client.status} client access</div></div><ChevronRight size={15} className="text-[#a9b6af]" /></Link>)}</div>}
+        </div>
+      </section>
+      <section className="mt-6 rounded-xl border border-[#dbe3dd] bg-[#203c4a] p-5 text-[#eaf3ed] shadow-[0_6px_24px_rgba(29,55,63,.1)] md:p-6">
+        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center"><div><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#8ec5ad]"><Server size={13} /> Policy posture</div><h2 className="mt-2 text-xl font-extrabold tracking-tight">Enforcement is ready for the next wave.</h2><p className="mt-1 max-w-xl text-xs leading-5 text-[#a9c0ba]">{policies.filter((p) => p.enabled).length} active policies are queued for client evaluation. {policies.filter((p) => !p.enabled).length} policies are currently paused.</p></div><Link href="/software" data-testid="link-manage-policies" className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#a7e4c5] px-4 text-xs font-extrabold text-[#173c31] transition hover:bg-[#c0efd5]">Manage policies <ChevronRight size={15} /></Link></div>
+      </section>
+    </>}
+  </div>;
+}
+
+function AuditRow({ entry, compact = false }: { entry: AuditEntry; compact?: boolean }) {
+  const kind = entry.result === 'success' ? 'success' : entry.result === 'warning' ? 'warning' : 'danger';
+  return <div className={cx('flex items-center gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7]', compact ? '' : 'min-w-[680px]')}><div className={cx('flex h-8 w-8 shrink-0 items-center justify-center rounded-lg', kind === 'success' ? 'bg-[#dff2e9] text-[#277657]' : kind === 'warning' ? 'bg-[#fff0d5] text-[#94661a]' : 'bg-[#f9e1dd] text-[#a13a31]')}>{kind === 'success' ? <Check size={15} /> : kind === 'warning' ? <AlertTriangle size={15} /> : <Ban size={15} />}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-bold text-[#365049]">{entry.clientName}</div><div className="mt-1 font-mono text-[10px] text-[#8a9891]">{formatTime(entry.timestamp)} <span className="mx-1 text-[#bbc5bd]">/</span> {entry.applications.length} app{entry.applications.length === 1 ? '' : 's'} evaluated</div></div><StatusPill value={entry.result} kind={kind} /></div>;
+}
+
+function SortHeader({ label, field, sortField, sortDir, onSort, className }: { label: string; field: string; sortField: string; sortDir: 'asc' | 'desc'; onSort: (f: string) => void; className?: string }) {
+  const active = sortField === field;
+  return (
+    <button type="button" onClick={() => onSort(field)} aria-pressed={active} aria-label={`Sort by ${label}${active ? `, currently ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`} className={cx('flex items-center gap-1.5 rounded font-extrabold uppercase hover:text-[#536b68] focus:outline-none focus:ring-2 focus:ring-[#75ad95]', className)}>
+      {label}
+      {active ? (sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUpDown size={12} className="opacity-40" />}
+    </button>
+  );
+}
+
+function compareVersions(v1: number[] | null, v2: number[] | null): 'outdated' | 'current' | 'ahead' | 'unknown' {
+  if (!v1 || !v2) return 'unknown';
+  const len = Math.max(v1.length, v2.length);
+  for (let i = 0; i < len; i++) {
+    const p1 = v1[i] || 0;
+    const p2 = v2[i] || 0;
+    if (p1 > p2) return 'ahead';
+    if (p1 < p2) return 'outdated';
+  }
+  return 'current';
+}
+
+function parseVersion(version: string | null | undefined): number[] | null {
+  if (!version || !isDottedNumericVersion(version)) return null;
+  return version.split('.').map(Number);
+}
+
+function compareVersionValues(first: string | null | undefined, second: string | null | undefined) {
+  const a = parseVersion(first);
+  const b = parseVersion(second);
+  if (!a && !b) return (first ?? '').localeCompare(second ?? '');
+  if (!a) return -1;
+  if (!b) return 1;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return (first ?? '').localeCompare(second ?? '');
+}
+
+function ClientsPage() {
+  const query = useListClients();
+  const deleteInactive = useDeleteInactiveClients();
+  const revoke = useRevokeClient();
+  const reactivate = useReactivateClient();
+  const clientList = listData<Client>(query.data, 'clients');
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('hostname');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [selected, setSelected] = useState<Client | null>(null);
+  const [feedback, setFeedback] = useState('');
+  const inactiveClients = clientList.filter((client) => client.status === 'stale');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('asc'); }
+  };
+
+  const sortedClients = useMemo(() => {
+    return [...clientList].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'hostname') cmp = a.hostname.localeCompare(b.hostname);
+      if (sortField === 'installedVersion') cmp = compareVersionValues(a.installedVersion, b.installedVersion);
+      if (sortField === 'address') cmp = a.address.localeCompare(b.address);
+      if (sortField === 'lastPoll') cmp = (new Date(a.lastPoll || 0).getTime()) - (new Date(b.lastPoll || 0).getTime());
+      if (sortField === 'lastSuccessfulSync') cmp = (new Date(a.lastSuccessfulSync || 0).getTime()) - (new Date(b.lastSuccessfulSync || 0).getTime());
+      if (sortField === 'status') cmp = a.status.localeCompare(b.status);
+      if (cmp === 0) cmp = a.id.localeCompare(b.id);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [clientList, sortField, sortDir]);
+
+  const filtered = sortedClients.filter((client) => {
+    const searchStr = `${Object.values(client).join(' ')} ${formatTime(client.lastPoll)} ${relativeTime(client.lastPoll)} ${formatTime(client.lastSuccessfulSync)} ${relativeTime(client.lastSuccessfulSync)} ${formatTime(client.lastSync)} ${relativeTime(client.lastSync)} ${client.status === 'online' ? 'access active' : ''}`.toLowerCase();
+    return searchStr.includes(search.toLowerCase());
+  });
+
+  const clientId = useMemo(() => selected?.id ?? '', [selected?.id]);
+  const config = useGetClientSyncConfig(clientId, { query: { enabled: Boolean(selected), queryKey: getGetClientSyncConfigQueryKey(clientId) } });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getListClientsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAuditEntriesQueryKey() });
+  };
+  const removeInactiveClients = () => {
+    if (!inactiveClients.length) return;
+    if (!window.confirm(`Permanently delete ${inactiveClients.length} client${inactiveClients.length === 1 ? '' : 's'} that have not reported for at least 72 hours? Their latest audit entries will also be deleted. If those machines reconnect, they will enroll again automatically.`)) return;
+    setFeedback('');
+    deleteInactive.mutate(undefined, {
+      onSuccess: (result) => {
+        setSelected(null);
+        setFeedback(`${result.deletedClients} inactive client${result.deletedClients === 1 ? '' : 's'} deleted.`);
+        invalidate();
+      },
+      onError: () => setFeedback('Unable to delete inactive clients.'),
+    });
+  };
+  const changeClientAccess = (client: Client) => {
+    const isBlocked = client.status === 'revoked';
+    const prompt = isBlocked
+      ? `Reactivate sync access for ${client.hostname}? The client can reconnect using its existing identity and shared API key.`
+      : `Block sync access for ${client.hostname}? The client will stop receiving configuration and reporting status on its next connection. The Windows service will not be stopped or uninstalled.`;
+    if (!window.confirm(prompt)) return;
+    const mutation = isBlocked ? reactivate : revoke;
+    mutation.mutate({ id: client.id }, {
+      onSuccess: () => {
+        setSelected(null);
+        invalidate();
+      },
+    });
+  };
+  return <div className="mx-auto max-w-[1380px]">
+    <PageHeader eyebrow="Estate inventory" title="Clients" detail="Every enrolled Windows service, identified by hostname, with its latest signal and access state." action={<div className="flex flex-wrap gap-2"><Button onClick={removeInactiveClients} variant="danger" disabled={!inactiveClients.length || deleteInactive.isPending} data-testid="button-delete-inactive-clients"><Trash2 size={14} /> {deleteInactive.isPending ? 'Deleting…' : 'Delete inactive clients'}</Button><Button onClick={() => query.refetch()} variant="secondary" disabled={query.isFetching} data-testid="button-refresh-clients"><RefreshCw size={14} className={query.isFetching ? 'animate-spin' : ''} /> Refresh</Button></div>} />
+    {feedback && <div role="status" className="mb-4 rounded-lg border border-[#d7e5dc] bg-[#eef7f1] px-4 py-3 text-xs font-semibold text-[#356450]">{feedback}</div>}
+    <div className="mb-4 flex flex-col gap-3 rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search clients" data-testid="input-search-clients" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, hostname, address, status, or timestamps" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{clientList.length}</span> enrolled <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#2c785b]">{clientList.filter((c) => c.status === 'online').length}</span> online <span className="mx-1 h-3 w-px bg-[#d3ddd6]" /><span className="font-mono text-[#94661a]">{inactiveClients.length}</span> inactive</div></div>
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={6} /> : filtered.length === 0 ? <EmptyState icon={Laptop} title={search ? 'No matching clients' : 'No clients enrolled'} detail={search ? 'Try a hostname, address, or a shorter name.' : 'Enroll a Windows service to begin receiving synchronization reports.'} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : undefined} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[1120px] grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Hostname" field="hostname" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Client version" field="installedVersion" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Network address" field="address" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last poll" field="lastPoll" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last full sync" field="lastSuccessfulSync" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Access" field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort} className="justify-end" /></div><div className="min-w-[1120px] divide-y divide-[#edf0eb]">{filtered.map((client) => { const isBlocked = client.status === 'revoked'; return <div key={client.id} data-testid={`row-client-${client.id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-[#fafbf7] md:grid-cols-[1.25fr_.65fr_.85fr_.75fr_.75fr_145px] md:items-center md:gap-4"><button data-testid={`button-client-details-${client.id}`} onClick={() => setSelected(client)} className="flex min-w-0 items-center gap-3 text-left"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#e3f0e9] text-[11px] font-extrabold text-[#2d7258]">{initials(client.hostname)}</div><div className="min-w-0"><div data-testid={`text-client-hostname-${client.id}`} className="truncate text-xs font-extrabold text-[#304b45]">{client.hostname}</div><div className="mt-1 truncate font-mono text-[10px] text-[#899992]">{client.name}</div></div></button><div className="font-mono text-[11px] text-[#536b68]">{client.installedVersion ?? <span className="italic text-[#9aa7a0]">Unknown</span>}</div><div className="font-mono text-[11px] text-[#536b68]">{client.address}</div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastPoll)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastPoll)}</div></div><div><span className="text-xs font-semibold text-[#536b68]">{relativeTime(client.lastSuccessfulSync)}</span><div className="mt-1 text-[10px] text-[#9aa7a0]">{formatTime(client.lastSuccessfulSync)}</div></div><div className="flex items-center justify-end gap-1"><StatusPill value={client.status === 'online' ? 'access active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /><button aria-label={`Inspect ${client.hostname}`} data-testid={`button-inspect-client-${client.id}`} onClick={() => setSelected(client)} className="rounded-md p-2 text-[#79908a] hover:bg-[#e4eee8] hover:text-[#246d53]"><ChevronRight size={16} /></button><button aria-label={`${isBlocked ? 'Reactivate sync access' : 'Block sync access'} for ${client.hostname}`} data-testid={`button-${isBlocked ? 'reactivate' : 'block'}-client-${client.id}`} disabled={revoke.isPending || reactivate.isPending} onClick={() => changeClientAccess(client)} className={cx('rounded-md p-2', isBlocked ? 'text-[#34775e] hover:bg-[#e4eee8] hover:text-[#246d53]' : 'text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]')}>{isBlocked ? <ShieldCheck size={15} /> : <ShieldX size={15} />}</button></div></div>; })}</div></div>}
+    {selected && <ClientModal client={selected} config={config.data} loading={config.isLoading} changingAccess={revoke.isPending || reactivate.isPending} onClose={() => setSelected(null)} onChangeAccess={() => changeClientAccess(selected)} />}
+  </div>;
+}
+
+function ClientModal({ client, config, loading, changingAccess, onClose, onChangeAccess }: { client: Client; config?: SyncConfig; loading: boolean; changingAccess: boolean; onClose: () => void; onChangeAccess: () => void }) {
+  return <Modal title="Client inspection" subtitle={`${client.name} · ${client.hostname}`} onClose={onClose}>
+    <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg bg-[#f5f8f3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Client access</div><div className="mt-2"><StatusPill value={client.status === 'online' ? 'active' : client.status} kind={client.status === 'online' ? 'online' : client.status === 'stale' ? 'warning' : 'danger'} /></div></div><div data-testid={`text-inspected-hostname-${client.id}`} className="rounded-lg bg-[#f5f8f3] p-3"><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Hostname identity</div><div className="mt-2 font-mono text-xs font-bold text-[#39514d]">{client.hostname}</div><div className="mt-1 text-[10px] text-[#87958e]">Shared API-key transport</div></div></div>
+    <div className="mt-5 grid gap-4 border-y border-[#e6ece6] py-4 sm:grid-cols-2"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Installed client version</div><div className="mt-1 font-mono text-xs text-[#39514d]">{client.installedVersion ?? 'Unknown'}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Address</div><div className="mt-1 font-mono text-xs text-[#39514d]">{client.address}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last poll</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastPoll)}</div><div className="mt-1 text-[10px] text-[#87958e]">Includes HTTP 304 responses</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last full sync</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSuccessfulSync)}</div><div className="mt-1 text-[10px] text-[#87958e]">Fresh configuration returned with HTTP 200</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#87958e]">Last compliance report</div><div className="mt-1 text-xs text-[#39514d]">{formatTime(client.lastSync)}</div></div></div>
+    <div className="rounded-lg border border-[#dbe3dd] p-4"><div className="flex items-center justify-between"><div><div className="text-xs font-extrabold text-[#365049]">Effective sync configuration</div><div className="mt-1 text-[11px] text-[#87958e]">What this client will receive next</div></div><Code2 size={17} className="text-[#729087]" /></div>{loading ? <div className="mt-4 h-12 animate-pulse rounded bg-[#edf2ed]" /> : config ? <div className="mt-4 grid grid-cols-2 gap-3 text-xs"><div><span className="text-[#87958e]">Interval</span><div className="mt-1 font-mono text-[#39514d]">{config.syncIntervalSeconds}s</div></div><div><span className="text-[#87958e]">Mode</span><div className="mt-1 font-mono text-[#39514d]">{config.updateMode ? 'Update Mode' : 'Normal'}</div></div><div><span className="text-[#87958e]">Config version</span><div className="mt-1 truncate font-mono text-[#39514d]">{config.configVersion}</div></div><div className="col-span-2"><span className="text-[#87958e]">Policies</span><div className="mt-1 font-mono text-[#39514d]">{config.policies.length} effective</div></div></div> : <p className="mt-4 text-xs text-[#a06b62]">Effective configuration is unavailable.</p>}</div>
+    <div className="mt-5 flex justify-between gap-2"><Button variant={client.status === 'revoked' ? 'secondary' : 'danger'} onClick={onChangeAccess} disabled={changingAccess}>{client.status === 'revoked' ? <><ShieldCheck size={14} /> Reactivate sync access</> : <><ShieldX size={14} /> Block sync access</>}</Button><Button variant="secondary" onClick={onClose}>Close</Button></div>
+  </Modal>;
+}
+
+function Modal({ title, subtitle, children, onClose, wide = false }: { title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
+  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-[#10242c]/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-5"><div className={cx('max-h-[92dvh] w-full overflow-y-auto rounded-t-2xl border border-[#d2ddd5] bg-[#fffdf8] p-5 shadow-[0_18px_70px_rgba(19,43,50,.2)] sm:rounded-2xl sm:p-6', wide ? 'max-w-2xl' : 'max-w-lg')}><div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-lg font-extrabold tracking-tight text-[#284139]">{title}</h2>{subtitle && <p className="mt-1 text-xs text-[#87958e]">{subtitle}</p>}</div><button aria-label="Close dialog" data-testid="button-close-dialog" onClick={onClose} className="rounded-lg p-1.5 text-[#7d9189] hover:bg-[#e8efea]"><X size={18} /></button></div>{children}</div></div>;
+}
+
+function SoftwarePage() {
+  const query = useListSoftware();
+  const remove = useDeleteSoftware();
+  const [editor, setEditor] = useState<{ open: boolean; policy?: SoftwarePolicy }>({ open: false });
+  const [search, setSearch] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const allPolicies = listData<SoftwarePolicy>(query.data, 'software policies');
+  const policies = allPolicies.filter((policy) => `${policy.name} ${policy.executable}`.toLowerCase().includes(search.toLowerCase()));
+  const deletePolicy = (policy: SoftwarePolicy) => {
+    if (!window.confirm(`Permanently delete the software policy "${policy.name}"? Existing audit history will be retained.`)) return;
+    setFeedback('');
+    remove.mutate({ id: policy.id }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListSoftwareQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
+        setFeedback(`Policy "${policy.name}" deleted.`);
+      },
+      onError: () => setFeedback(`Unable to delete "${policy.name}".`),
+    });
+  };
+  return <div className="mx-auto max-w-[1380px]">
+    <PageHeader eyebrow="Enforcement registry" title="Software policies" detail="Version rules are evaluated on the client. Keep executable paths, INI expectations, and close behavior explicit." action={<Button onClick={() => setEditor({ open: true })} data-testid="button-new-policy"><Plus size={15} /> New policy</Button>} />
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="relative max-w-sm flex-1"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search policies" data-testid="input-search-policies" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search policy or executable" className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fffdf8] pl-9 pr-3 text-xs outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div><div className="flex items-center gap-2 text-[11px] font-bold text-[#71817c]"><span className="font-mono text-[#2c785b]">{allPolicies.filter((p) => p.enabled).length}</span> active policies</div></div>
+     {feedback && <div role="status" className="mb-4 rounded-lg bg-[#e6f4eb] px-3 py-2 text-xs font-semibold text-[#317357]">{feedback}</div>}
+     {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={5} /> : policies.length === 0 ? <EmptyState icon={FileCog} title={search ? 'No matching policies' : 'No software policies'} detail={search ? 'Try a shorter name or executable path.' : 'Create a policy to define the versions clients must run.'} action={!search ? <Button onClick={() => setEditor({ open: true })}><Plus size={14} /> Create first policy</Button> : <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button>} /> : <div className="grid gap-4 lg:grid-cols-2">{policies.map((policy) => <PolicyCardUnified key={policy.id} policy={policy} onEdit={() => setEditor({ open: true, policy })} onDelete={() => deletePolicy(policy)} deleting={remove.isPending && remove.variables?.id === policy.id} />)}</div>}
+     {editor.open && <UnifiedPolicyEditor policy={editor.policy} onClose={() => setEditor({ open: false })} />}
+  </div>;
+}
+
+function PolicyCard({ policy, onEdit }: { policy: SoftwarePolicy; onEdit: () => void }) {
+  const exeCount = policy.exeChecks.length;
+  const iniCount = policy.iniChecks.length;
+  return <div data-testid={`card-policy-${policy.id}`} className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b7cec1]"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className={cx('mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg', policy.ruleType === 'ini' ? 'bg-[#e0eef1] text-[#286b76]' : 'bg-[#dff2e9] text-[#247455]')}>{policy.ruleType === 'ini' ? <FileKey2 size={18} /> : <HardDrive size={18} />}</div><div className="min-w-0"><h2 className="truncate text-sm font-extrabold text-[#2d4942]">{policy.name}</h2><div className="mt-1 truncate font-mono text-[10px] text-[#8a9992]">{policy.ruleType === 'application' ? 'Application-level checks' : policy.executable}</div></div></div><button aria-label={`Edit ${policy.name}`} data-testid={`button-edit-policy-${policy.id}`} onClick={onEdit} className="rounded-lg p-2 text-[#79908a] hover:bg-[#e5eee8] hover:text-[#246d53]"><Pencil size={15} /></button></div><div className="mt-5 grid grid-cols-2 gap-3 border-y border-[#e7ece7] py-3"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Checks</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{exeCount} EXE · {iniCount} INI</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Rule type</div><div className="mt-1 text-xs font-bold text-[#315049]">{policy.ruleType === 'application' ? 'Application' : policy.ruleType === 'ini' ? 'INI value' : 'EXE version'}</div></div></div><div className="flex items-center justify-between"><div className="flex items-center gap-2"><StatusPill value={policy.enabled ? 'enforcing' : 'paused'} kind={policy.enabled ? 'success' : 'neutral'} /><span className="text-[11px] text-[#87958e]">{policy.normalCloseTimeoutSeconds}s normal close</span></div><span className="font-mono text-[10px] text-[#9aa7a0]">updated {relativeTime(policy.lastUpdated)}</span></div>{(iniCount > 0 || policy.ruleType === 'ini') && <div className="mt-4 flex items-center gap-2 rounded-lg bg-[#f5f8f3] px-3 py-2 text-[11px] text-[#71817c]"><Code2 size={13} className="text-[#4b9474]" />{iniCount} expected INI value{iniCount === 1 ? '' : 's'}<span className="ml-auto font-mono text-[#4d7165]">{policy.iniChecks.map((rule) => `[${rule.section}]`).join(' ')}</span></div>}</div>;
+}
+
+function PolicyCardUnified({ policy, onEdit, onDelete, deleting }: { policy: SoftwarePolicy; onEdit: () => void; onDelete: () => void; deleting: boolean }) {
+  const supervisedCount = policy.supervisedExecutables.length;
+  const versionCount = policy.exeChecks.length;
+  const iniCount = policy.iniChecks.length;
+  const targetCount = policy.targetAdGroupIds?.length ?? 0;
+  const targetingText = targetCount > 0 ? `${targetCount} AD group${targetCount === 1 ? '' : 's'}` : 'All workstations';
+  return <div data-testid={`card-policy-${policy.id}`} className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)] transition-all duration-200 hover:-translate-y-0.5 hover:border-[#b7cec1]">
+    <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#dff2e9] text-[#247455]"><HardDrive size={18} /></div><div className="min-w-0"><h2 className="truncate text-sm font-extrabold text-[#2d4942]">{policy.name}</h2><div className="mt-1 text-[10px] text-[#8a9992]">Application supervision and compliance checks</div></div></div><div className="flex items-center gap-1"><button aria-label={`Edit ${policy.name}`} data-testid={`button-edit-policy-${policy.id}`} onClick={onEdit} className="rounded-lg p-2 text-[#79908a] hover:bg-[#e5eee8] hover:text-[#246d53]"><Pencil size={15} /></button><button aria-label={`Delete ${policy.name}`} data-testid={`button-delete-policy-${policy.id}`} disabled={deleting} onClick={onDelete} className="rounded-lg p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31] disabled:opacity-50"><Trash2 size={15} /></button></div></div>
+    <div className="mt-5 grid grid-cols-4 gap-2 border-y border-[#e7ece7] py-3"><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Supervised</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{supervisedCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Versions</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{versionCount} EXE</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">INI values</div><div className="mt-1 font-mono text-xs font-medium text-[#315049]">{iniCount}</div></div><div><div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#96a39d]">Targeting</div><div className="mt-1 text-xs font-medium text-[#315049]">{targetingText}</div></div></div>
+    <div className="mt-3 flex items-center justify-between"><div className="flex items-center gap-2"><StatusPill value={policy.enabled ? 'enforcing' : 'paused'} kind={policy.enabled ? 'success' : 'neutral'} /><span className="text-[11px] text-[#87958e]">{policy.normalCloseTimeoutSeconds}s normal close</span><span className="text-[11px] text-[#87958e]">· Postpone {policy.allowPostpone ? 'allowed' : 'disabled'}</span></div><span className="font-mono text-[10px] text-[#9aa7a0]">updated {relativeTime(policy.lastUpdated)}</span></div>
+    {iniCount > 0 && <div className="mt-4 flex items-center gap-2 rounded-lg bg-[#f5f8f3] px-3 py-2 text-[11px] text-[#71817c]"><Code2 size={13} className="text-[#4b9474]" />{iniCount} expected INI value{iniCount === 1 ? '' : 's'}<span className="ml-auto truncate font-mono text-[#4d7165]">{policy.iniChecks.map((rule) => `[${rule.section}]`).join(' ')}</span></div>}
+  </div>;
+}
+
+function PolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onClose: () => void }) {
+  const isEdit = Boolean(policy);
+  const create = useCreateSoftware();
+  const update = useUpdateSoftware();
+  const [name, setName] = useState(policy?.name ?? '');
+  const [executable, setExecutable] = useState(policy?.executable ?? '');
+  const [targetVersion, setTargetVersion] = useState(policy?.targetVersion ?? '');
+  const [ruleType, setRuleType] = useState<'application' | 'file-version' | 'ini'>(policy?.ruleType ?? 'application');
+  const [normalCloseTimeoutSeconds, setNormalCloseTimeoutSeconds] = useState(String(policy?.normalCloseTimeoutSeconds ?? 30));
+  const [enabled, setEnabled] = useState(policy?.enabled ?? true);
+  const [updateMode, setUpdateMode] = useState(policy?.updateMode ?? false);
+  const [updateModeCloseTimeoutSeconds, setUpdateModeCloseTimeoutSeconds] = useState(String(policy?.updateModeCloseTimeoutSeconds ?? 8));
+  const [allowPostpone, setAllowPostpone] = useState(policy?.allowPostpone ?? false);
+  const [launchOnExitUpdateMode, setLaunchOnExitUpdateMode] = useState(policy?.launchOnExitUpdateMode ?? false);
+  const [launchExecutablePath, setLaunchExecutablePath] = useState(policy?.launchExecutablePath ?? '');
+  const [launchArguments, setLaunchArguments] = useState(policy?.launchArguments ?? '');
+  const [rules, setRules] = useState<IniRule[]>(policy?.iniRules ?? [{ section: 'Settings', key: '', expectedValue: '' }]);
+  const [exeChecks, setExeChecks] = useState<ExeCheck[]>(policy?.exeChecks.length ? policy.exeChecks : [{ executable: '', targetVersion: '', installCommand: '' }]);
+  const [iniChecks, setIniChecks] = useState<IniCheck[]>(policy?.iniChecks.length ? policy.iniChecks : [{ filePath: '', section: 'Poste', key: '', expectedValue: '' }]);
+  const [feedback, setFeedback] = useState('');
+  const busy = create.isPending || update.isPending;
+  const updateRule = (index: number, field: keyof IniRule, value: string) => setRules((items) => items.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  const updateExeCheck = (index: number, field: keyof ExeCheck, value: string) => setExeChecks((items) => items.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  const updateIniCheck = (index: number, field: keyof IniCheck, value: string) => setIniChecks((items) => items.map((item, i) => i === index ? { ...item, [field]: value } : item));
+  const submit = (event: FormEvent) => { event.preventDefault(); const validExeChecks = exeChecks.filter((check) => check.executable.trim() && check.targetVersion.trim()).map((check) => ({ ...check, executable: check.executable.trim(), targetVersion: check.targetVersion.trim() })); const validIniChecks = iniChecks.filter((check) => check.filePath.trim() && check.section.trim() && check.key.trim()).map((check) => ({ ...check, filePath: check.filePath.trim(), section: check.section.trim(), key: check.key.trim(), expectedValue: check.expectedValue.trim() })); const data: SoftwarePolicyInput = { name: name.trim(), executable: ruleType === 'application' ? validExeChecks[0]?.executable : executable.trim(), targetVersion: ruleType === 'application' ? validExeChecks[0]?.targetVersion : targetVersion.trim(), ruleType, normalCloseTimeoutSeconds: Number(normalCloseTimeoutSeconds), updateMode, updateModeCloseTimeoutSeconds: Number(updateModeCloseTimeoutSeconds), allowPostpone, enabled, exeChecks: ruleType === 'application' ? validExeChecks : [], iniChecks: ruleType === 'application' ? validIniChecks : [], iniRules: ruleType === 'ini' ? rules.filter((rule) => rule.section && rule.key) : [] }; if (!data.name || (ruleType === 'application' && validExeChecks.length === 0 && validIniChecks.length === 0) || (ruleType !== 'application' && (!data.executable || !data.targetVersion))) { setFeedback(ruleType === 'application' ? 'Add at least one complete EXE or INI check.' : 'Name, executable, and expected version are required.'); return; } const onSuccess = () => { queryClient.invalidateQueries({ queryKey: getListSoftwareQueryKey() }); onClose(); }; if (isEdit && policy) update.mutate({ id: policy.id, data }, { onSuccess }); else create.mutate({ data }, { onSuccess }); };
+  return <Modal wide title={isEdit ? 'Edit policy' : 'New software policy'} subtitle={isEdit ? `Update ${policy?.name}` : 'Define a version expectation for enrolled clients.'} onClose={onClose}><form onSubmit={submit} className="space-y-4">
+     <div className="grid gap-4 sm:grid-cols-2"><label className="block sm:col-span-2"><span className="field-label">Application name</span><input autoFocus required data-testid="input-policy-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SecureConnect Agent" className="field-input" /></label>{ruleType !== 'application' && <><label className="block"><span className="field-label">Executable path</span><input required data-testid="input-policy-executable" value={executable} onChange={(e) => setExecutable(e.target.value)} placeholder="C:\Program Files\...\agent.exe" className="field-input font-mono" /></label><label className="block"><span className="field-label">Target version</span><input required data-testid="input-policy-version" value={targetVersion} onChange={(e) => setTargetVersion(e.target.value)} placeholder="4.7.2.118" className="field-input font-mono" /></label></>}</div>
+     <div><span className="field-label">Evaluation rule</span><div className="grid gap-2 sm:grid-cols-3"><button type="button" data-testid="button-rule-application" onClick={() => setRuleType('application')} className={cx('rounded-lg border p-3 text-left transition', ruleType === 'application' ? 'border-[#5fa886] bg-[#e8f4ed]' : 'border-[#d9e2dc] bg-[#fbfcf8] hover:bg-[#f2f7f2]')}><div className="flex items-center gap-2 text-xs font-bold text-[#35534a]"><Settings2 size={15} /> Application checks</div><div className="mt-1 text-[10px] text-[#87958e]">Group EXE and INI rules</div></button><button type="button" data-testid="button-rule-file-version" onClick={() => setRuleType('file-version')} className={cx('rounded-lg border p-3 text-left transition', ruleType === 'file-version' ? 'border-[#5fa886] bg-[#e8f4ed]' : 'border-[#d9e2dc] bg-[#fbfcf8] hover:bg-[#f2f7f2]')}><div className="flex items-center gap-2 text-xs font-bold text-[#35534a]"><HardDrive size={15} /> File version</div><div className="mt-1 text-[10px] text-[#87958e]">Read one EXE metadata value</div></button><button type="button" data-testid="button-rule-ini" onClick={() => setRuleType('ini')} className={cx('rounded-lg border p-3 text-left transition', ruleType === 'ini' ? 'border-[#5fa886] bg-[#e8f4ed]' : 'border-[#d9e2dc] bg-[#fbfcf8] hover:bg-[#f2f7f2]')}><div className="flex items-center gap-2 text-xs font-bold text-[#35534a]"><FileKey2 size={15} /> INI values</div><div className="mt-1 text-[10px] text-[#87958e]">Match section and key values</div></button></div></div>
+     {ruleType === 'application' && <div className="space-y-4 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3"><div><div className="mb-2 flex items-center justify-between"><div><div className="text-xs font-extrabold text-[#38534a]">EXE checks</div><div className="text-[10px] text-[#8b9992]">Every EXE check is evaluated; install commands run silently when a version is out of policy.</div></div><Button type="button" variant="secondary" onClick={() => setExeChecks((items) => [...items, { executable: '', targetVersion: '', installCommand: '' }])} data-testid="button-add-exe-check"><Plus size={13} /> Add EXE</Button></div>{exeChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.65fr_1fr_28px]"><input aria-label={`EXE path ${index + 1}`} data-testid={`input-exe-path-${index}`} value={check.executable} onChange={(e) => updateExeCheck(index, 'executable', e.target.value)} placeholder="C:\Program Files\...\agent.exe" className="field-input font-mono" /><input aria-label={`EXE target version ${index + 1}`} data-testid={`input-exe-version-${index}`} value={check.targetVersion} onChange={(e) => updateExeCheck(index, 'targetVersion', e.target.value)} placeholder="4.7.2.118" className="field-input font-mono" /><input aria-label={`EXE install command ${index + 1}`} data-testid={`input-exe-install-command-${index}`} value={check.installCommand ?? ''} onChange={(e) => updateExeCheck(index, 'installCommand', e.target.value)} placeholder="Setup.exe /quiet" className="field-input font-mono" /><button type="button" aria-label={`Remove EXE check ${index + 1}`} data-testid={`button-remove-exe-${index}`} onClick={() => setExeChecks((items) => items.filter((_, i) => i !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}</div><div><div className="mb-2 flex items-center justify-between"><div><div className="text-xs font-extrabold text-[#38534a]">INI checks</div><div className="text-[10px] text-[#8b9992]">All configured section/key/value rows must match.</div></div><Button type="button" variant="secondary" onClick={() => setIniChecks((items) => [...items, { filePath: '', section: 'Poste', key: '', expectedValue: '' }])} data-testid="button-add-application-ini"><Plus size={13} /> Add INI</Button></div>{iniChecks.map((check, index) => <div key={index} className="mb-2 grid gap-2 sm:grid-cols-[1.1fr_.65fr_.75fr_.75fr_28px]"><input aria-label={`INI file ${index + 1}`} data-testid={`input-application-ini-file-${index}`} value={check.filePath} onChange={(e) => updateIniCheck(index, 'filePath', e.target.value)} placeholder="C:\ProgramData\app.ini" className="field-input font-mono" /><input aria-label={`Application INI section ${index + 1}`} value={check.section} onChange={(e) => updateIniCheck(index, 'section', e.target.value)} placeholder="Section" className="field-input font-mono" /><input aria-label={`Application INI key ${index + 1}`} value={check.key} onChange={(e) => updateIniCheck(index, 'key', e.target.value)} placeholder="Key" className="field-input font-mono" /><input aria-label={`Application INI expected value ${index + 1}`} value={check.expectedValue} onChange={(e) => updateIniCheck(index, 'expectedValue', e.target.value)} placeholder="Expected value" className="field-input font-mono" /><button type="button" aria-label={`Remove application INI check ${index + 1}`} data-testid={`button-remove-application-ini-${index}`} onClick={() => setIniChecks((items) => items.filter((_, i) => i !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}</div></div>}
+     {ruleType === 'ini' && <div className="rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3"><div className="mb-2 flex items-center justify-between"><div><div className="text-xs font-extrabold text-[#38534a]">Expected INI values</div><div className="text-[10px] text-[#8b9992]">All rows must match before the client is compliant.</div></div><Button type="button" variant="secondary" onClick={() => setRules((items) => [...items, { section: 'Settings', key: '', expectedValue: '' }])} data-testid="button-add-ini-rule"><Plus size={13} /> Add row</Button></div>{rules.map((rule, index) => <div key={index} className="mb-2 grid grid-cols-[.8fr_1fr_1fr_28px] gap-2"><input aria-label={`INI section ${index + 1}`} data-testid={`input-ini-section-${index}`} value={rule.section} onChange={(e) => updateRule(index, 'section', e.target.value)} placeholder="Section" className="field-input font-mono" /><input aria-label={`INI key ${index + 1}`} data-testid={`input-ini-key-${index}`} value={rule.key} onChange={(e) => updateRule(index, 'key', e.target.value)} placeholder="Key" className="field-input font-mono" /><input aria-label={`INI expected value ${index + 1}`} data-testid={`input-ini-value-${index}`} value={rule.expectedValue} onChange={(e) => updateRule(index, 'expectedValue', e.target.value)} placeholder="Expected value" className="field-input font-mono" /><button type="button" aria-label={`Remove INI row ${index + 1}`} data-testid={`button-remove-ini-${index}`} disabled={rules.length === 1} onClick={() => setRules((items) => items.filter((_, i) => i !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}</div>}
+      <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="block"><span className="field-label">Normal close countdown (seconds)</span><input type="number" min="1" max="3600" required data-testid="input-policy-normal-close-timeout" value={normalCloseTimeoutSeconds} onChange={(e) => setNormalCloseTimeoutSeconds(e.target.value)} className="field-input font-mono" /></label><div><span className="field-label">Policy state</span><button type="button" data-testid="button-toggle-policy-state" onClick={() => setEnabled((value) => !value)} className={cx('flex h-9 w-full items-center justify-between rounded-lg border px-3 text-xs font-bold transition sm:w-[150px]', enabled ? 'border-[#8cc5a6] bg-[#e7f4ec] text-[#267154]' : 'border-[#d6ded8] bg-[#eef1ef] text-[#72817b]')}><span>{enabled ? 'Enforcing' : 'Paused'}</span><span className={cx('h-2 w-2 rounded-full', enabled ? 'bg-[#2ca06d]' : 'bg-[#96a29d]')} /></button></div></div>
+     <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3"><SettingToggle label="Application Update Mode" detail="Only this application's managed processes use the short close timeout." value={updateMode} onChange={setUpdateMode} testId="toggle-policy-update-mode" /><SettingToggle label="Allow postpone" detail="Show a Postpone button in the Windows warning. Disabled means only Close application now is available." value={allowPostpone} onChange={setAllowPostpone} testId="toggle-policy-allow-postpone" /><label className="block max-w-[220px]"><span className="field-label">Close timeout in Update Mode (seconds)</span><input type="number" min="1" max="300" required value={updateModeCloseTimeoutSeconds} onChange={(event) => setUpdateModeCloseTimeoutSeconds(event.target.value)} className="field-input font-mono" /></label></section>
+    {feedback && <div className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}<div className="flex justify-end gap-2 border-t border-[#e7ece7] pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}><Save size={14} />{busy ? 'Saving…' : isEdit ? 'Save changes' : 'Create policy'}</Button></div>
+  </form></Modal>;
+}
+
+function UnifiedPolicyEditor({ policy, onClose }: { policy?: SoftwarePolicy; onClose: () => void }) {
+  const isEdit = Boolean(policy);
+  const create = useCreateSoftware();
+  const update = useUpdateSoftware();
+  const [name, setName] = useState(policy?.name ?? '');
+  const [normalCloseTimeoutSeconds, setNormalCloseTimeoutSeconds] = useState(String(policy?.normalCloseTimeoutSeconds ?? 30));
+  const [launchOnExitUpdateMode, setLaunchOnExitUpdateMode] = useState(policy?.launchOnExitUpdateMode ?? false);
+  const [launchExecutablePath, setLaunchExecutablePath] = useState(policy?.launchExecutablePath ?? '');
+  const [launchArguments, setLaunchArguments] = useState(policy?.launchArguments ?? '');
+  const [enabled, setEnabled] = useState(policy?.enabled ?? true);
+  const [updateMode, setUpdateMode] = useState(policy?.updateMode ?? false);
+  const [updateModeCloseTimeoutSeconds, setUpdateModeCloseTimeoutSeconds] = useState(String(policy?.updateModeCloseTimeoutSeconds ?? 8));
+  const [allowPostpone, setAllowPostpone] = useState(policy?.allowPostpone ?? false);
+  const [supervisedExecutables, setSupervisedExecutables] = useState<string[]>(policy?.supervisedExecutables ?? []);
+  const [exeChecks, setExeChecks] = useState<ExeCheck[]>(policy?.exeChecks ?? []);
+  const [iniChecks, setIniChecks] = useState<IniCheck[]>(policy?.iniChecks ?? []);
+  const [targetAdGroupIds, setTargetAdGroupIds] = useState<string[]>(policy?.targetAdGroupIds ?? []);
+  const [feedback, setFeedback] = useState('');
+  const busy = create.isPending || update.isPending;
+
+  const groupsQuery = useListLdapDirectoryGroups();
+  const allFetchedGroups = useMemo(() => listData<DirectoryGroup>(groupsQuery.data, 'groups'), [groupsQuery.data]);
+  const groupsById = useMemo(() => new Map(allFetchedGroups.map((group) => [group.id, group])), [allFetchedGroups]);
+  const selectableGroups = useMemo(() => allFetchedGroups.filter((group) => group.active), [allFetchedGroups]);
+  const [showTargetingPicker, setShowTargetingPicker] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+  const [debouncedGroupSearch, setDebouncedGroupSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedGroupSearch(groupSearch), 300);
+    return () => window.clearTimeout(timer);
+  }, [groupSearch]);
+  const normalizedGroupSearch = debouncedGroupSearch.trim().toLowerCase();
+  const matchingGroups = useMemo(() => {
+    if (normalizedGroupSearch.length < 2) return [];
+    return selectableGroups.filter((group) =>
+      group.name.toLowerCase().includes(normalizedGroupSearch)
+      || group.samAccountName.toLowerCase().includes(normalizedGroupSearch)
+      || group.distinguishedName.toLowerCase().includes(normalizedGroupSearch));
+  }, [normalizedGroupSearch, selectableGroups]);
+  const visibleGroups = matchingGroups.slice(0, 75);
+
+  const legacyExeChecks = (policy && exeChecks.length === 0 && policy.ruleType !== 'ini' && policy.executable !== '-'
+    ? [{ executable: policy.executable, targetVersion: policy.targetVersion, installCommand: '' }]
+    : exeChecks).map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? '=' as const }));
+  const legacyIniChecks = policy && iniChecks.length === 0
+    ? policy.iniRules.map((rule) => ({ filePath: '', comparisonOperator: '=' as const, ...rule }))
+    : iniChecks.map((check) => ({ ...check, comparisonOperator: check.comparisonOperator ?? '=' as const }));
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const normalizedSupervised = supervisedExecutables.map((value) => value.trim()).filter(Boolean);
+    const validExeChecks = legacyExeChecks
+      .filter((check) => check.executable.trim() && check.targetVersion.trim())
+      .map((check) => ({ ...check, executable: check.executable.trim(), targetVersion: check.targetVersion.trim(), installCommand: check.installCommand?.trim() || undefined }));
+    const validIniChecks = legacyIniChecks
+      .filter((check) => check.filePath.trim() && check.section.trim() && check.key.trim())
+      .map((check) => ({ ...check, filePath: check.filePath.trim(), section: check.section.trim(), key: check.key.trim(), expectedValue: check.expectedValue.trim() }));
+    const invalidRelationalValue = validExeChecks.some((check) => check.comparisonOperator !== '=' && !isDottedNumericVersion(check.targetVersion))
+      || validIniChecks.some((check) => check.comparisonOperator !== '=' && !isDottedNumericVersion(check.expectedValue));
+    if (invalidRelationalValue) {
+      setFeedback('Less-than and greater-than comparisons require numeric versions separated by dots, such as 4.7.2.118.');
+      return;
+    }
+    if (!name.trim() || normalizedSupervised.length === 0 && validExeChecks.length === 0 && validIniChecks.length === 0) {
+      setFeedback('Add an application name and at least one application, file-version, or INI check.');
+      return;
+    }
+    const data: SoftwarePolicyInput = {
+      name: name.trim(),
+      executable: validExeChecks[0]?.executable ?? '-',
+      targetVersion: validExeChecks[0]?.targetVersion ?? '-',
+      ruleType: 'application',
+      supervisedExecutables: normalizedSupervised,
+      exeChecks: validExeChecks,
+      iniChecks: validIniChecks,
+      iniRules: validIniChecks.map(({ filePath: _filePath, ...rule }) => rule),
+      normalCloseTimeoutSeconds: Number(normalCloseTimeoutSeconds),
+      updateMode,
+      updateModeCloseTimeoutSeconds: Number(updateModeCloseTimeoutSeconds),
+      allowPostpone,
+      launchOnExitUpdateMode,
+      launchExecutablePath,
+      launchArguments,
+      targetAdGroupIds,
+      enabled,
+    };
+    const onSuccess = () => {
+      queryClient.invalidateQueries({ queryKey: getListSoftwareQueryKey() });
+      onClose();
+    };
+    if (isEdit && policy) update.mutate({ id: policy.id, data }, { onSuccess });
+    else create.mutate({ data }, { onSuccess });
+  };
+
+  const addSupervised = () => setSupervisedExecutables((items) => [...items, '']);
+  const addExeCheck = () => setExeChecks((items) => [...items, { executable: '', comparisonOperator: '=', targetVersion: '', installCommand: '' }]);
+  const addIniCheck = () => setIniChecks((items) => [...items, { filePath: '', section: '', key: '', comparisonOperator: '=', expectedValue: '' }]);
+
+  return <Modal wide title={isEdit ? 'Edit policy' : 'New software policy'} subtitle="Keep application supervision, EXE versions, and INI values together in one policy." onClose={onClose}>
+    <form onSubmit={submit} className="space-y-4">
+      <label className="block"><span className="field-label">Application name</span><input autoFocus required data-testid="input-policy-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. SecureConnect Agent" className="field-input" /></label>
+
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div><h3 className="text-xs font-extrabold text-[#38534a]">Targeting</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Restrict this policy to computers in specific Active Directory groups. If no groups are selected, the policy applies to all workstations.</p></div>
+          <Button type="button" variant="secondary" onClick={() => setShowTargetingPicker(true)} data-testid="button-add-targeting"><Plus size={13} /> Targeting</Button>
+        </div>
+
+        {targetAdGroupIds.length === 0 ? (
+          <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">All workstations</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {targetAdGroupIds.map((id) => {
+              const group = groupsById.get(id);
+              return <div key={id} className="flex items-center gap-1 rounded-md border border-[#b8dfc8] bg-[#dff2e9] px-2 py-1 text-[11px] font-bold text-[#176244]"><Users size={12} className="opacity-50" /> <span>{group?.name ?? 'Unknown group'}</span><button type="button" onClick={() => setTargetAdGroupIds((current) => current.filter((x) => x !== id))} className="ml-1 text-[#247455] hover:text-[#0f523b]" aria-label="Remove group"><X size={12} /></button></div>;
+            })}
+          </div>
+        )}
+
+        {showTargetingPicker && (
+          <div className="mt-2 rounded-lg border border-[#c1d3c9] bg-[#eef5f0] p-3 shadow-inner">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#38534a]">Select Active Directory Group</div>
+              <button type="button" onClick={() => setShowTargetingPicker(false)} className="rounded text-[#71817c] hover:bg-[#dbe6df]"><X size={14} /></button>
+            </div>
+            {selectableGroups.length === 0 ? (
+              <div className="text-[11px] text-[#71817c]">No active AD groups found. <Link href="/security" className="text-[#277657] font-bold hover:underline" onClick={onClose}>Go to Security &gt; LDAP</Link> to sync the directory.</div>
+            ) : (
+              <>
+                <div className="relative mb-2">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#71817c]" />
+                  <input autoFocus data-testid="input-target-group-search" placeholder="Type at least 2 characters to search" value={groupSearch} onChange={(e) => setGroupSearch(e.target.value)} className="h-8 w-full rounded-md border border-[#c1d3c9] bg-[#fffdf8] pl-8 pr-2 text-xs text-[#284139] focus:border-[#75ad95] focus:outline-none focus:ring-1 focus:ring-[#75ad95]" />
+                </div>
+                <div className="max-h-[140px] overflow-y-auto rounded-md border border-[#d2ddd5] bg-[#fffdf8] text-xs shadow-sm">
+                  {normalizedGroupSearch.length < 2 ? (
+                    <div className="p-3 text-center text-[#87958e]">Enter at least 2 characters. The directory contains {selectableGroups.length} active groups.</div>
+                  ) : visibleGroups.length === 0 ? (
+                    <div className="p-3 text-center text-[#87958e]">No groups found.</div>
+                  ) : (
+                    <>
+                      {visibleGroups.map(group => (
+                        <button key={group.id} type="button" onClick={() => {
+                        if (!targetAdGroupIds.includes(group.id)) setTargetAdGroupIds(curr => [...curr, group.id]);
+                        setShowTargetingPicker(false);
+                        setGroupSearch('');
+                      }} className="flex w-full items-center justify-between border-b border-[#f4f5ef] px-3 py-2 text-left transition hover:bg-[#f8faf6] last:border-0">
+                        <div className="min-w-0">
+                          <div className="truncate font-bold text-[#35534a]">{group.name}</div>
+                          <div className="truncate font-mono text-[10px] text-[#8a9992]">{group.distinguishedName}</div>
+                        </div>
+                        {targetAdGroupIds.includes(group.id) && <Check size={14} className="text-[#3c8266]" />}
+                        </button>
+                      ))}
+                      {matchingGroups.length > visibleGroups.length && <div className="border-t border-[#e6ebe6] bg-[#f8faf6] px-3 py-2 text-center text-[10px] font-semibold text-[#71817c]">{matchingGroups.length - visibleGroups.length} more matches — refine your search.</div>}
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
+        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">Application checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">List every EXE whose process should be supervised and closed before an update. These entries do not need a version target.</p></div><Button type="button" variant="secondary" onClick={addSupervised} data-testid="button-add-supervised-exe"><Plus size={13} /> Add EXE</Button></div>
+        {supervisedExecutables.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No supervised processes added.</p> : supervisedExecutables.map((executable, index) => <div key={index} className="flex gap-2"><input aria-label={`Supervised EXE ${index + 1}`} data-testid={`input-supervised-exe-${index}`} value={executable} onChange={(event) => setSupervisedExecutables((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder="C:\Program Files\...\app.exe" className="field-input font-mono" /><button type="button" aria-label={`Remove supervised EXE ${index + 1}`} data-testid={`button-remove-supervised-exe-${index}`} onClick={() => setSupervisedExecutables((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md px-2 text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
+        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">File version checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Compare each EXE file version with its configured value. Use ≥ to allow newer self-updated versions.</p></div><Button type="button" variant="secondary" onClick={addExeCheck} data-testid="button-add-exe-version-check"><Plus size={13} /> Add version check</Button></div>
+        {legacyExeChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No file version checks added.</p> : legacyExeChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.7fr_.65fr_1fr_28px]"><input aria-label={`Version check EXE ${index + 1}`} data-testid={`input-exe-version-path-${index}`} value={check.executable} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, executable: event.target.value } : item))} placeholder="C:\Program Files\...\versioned.exe" className="field-input font-mono" /><select aria-label={`EXE comparison ${index + 1}`} data-testid={`select-exe-operator-${index}`} value={check.comparisonOperator ?? '='} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, comparisonOperator: event.target.value as ComparisonOperator } : item))} className="field-input font-mono">{comparisonOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}</select><input aria-label={`Expected version ${index + 1}`} data-testid={`input-exe-version-target-${index}`} value={check.targetVersion} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, targetVersion: event.target.value } : item))} placeholder="4.7.2.118" className="field-input font-mono" /><input aria-label={`Silent install command ${index + 1}`} value={check.installCommand ?? ''} onChange={(event) => setExeChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, installCommand: event.target.value } : item))} placeholder="Setup.exe /quiet" className="field-input font-mono" /><button type="button" aria-label={`Remove version check ${index + 1}`} data-testid={`button-remove-exe-version-${index}`} onClick={() => setExeChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3">
+        <div className="flex items-start justify-between gap-3"><div><h3 className="text-xs font-extrabold text-[#38534a]">INI value checks</h3><p className="mt-1 text-[10px] leading-4 text-[#8b9992]">Compare version-like INI values with the configured value. Relational checks require dotted numeric values.</p></div><Button type="button" variant="secondary" onClick={addIniCheck} data-testid="button-add-ini-value-check"><Plus size={13} /> Add INI check</Button></div>
+        {legacyIniChecks.length === 0 ? <p className="rounded-md border border-dashed border-[#cbd9cf] px-3 py-2 text-[11px] text-[#87958e]">No INI value checks added.</p> : legacyIniChecks.map((check, index) => <div key={index} className="grid gap-2 sm:grid-cols-[1.1fr_.65fr_.7fr_.7fr_.75fr_28px]"><input aria-label={`INI file ${index + 1}`} data-testid={`input-ini-file-${index}`} value={check.filePath} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, filePath: event.target.value } : item))} placeholder="C:\ProgramData\app.ini" className="field-input font-mono" /><input aria-label={`INI section ${index + 1}`} value={check.section} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, section: event.target.value } : item))} placeholder="Section" className="field-input font-mono" /><input aria-label={`INI key ${index + 1}`} value={check.key} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item))} placeholder="Key" className="field-input font-mono" /><select aria-label={`INI comparison ${index + 1}`} data-testid={`select-ini-operator-${index}`} value={check.comparisonOperator ?? '='} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, comparisonOperator: event.target.value as ComparisonOperator } : item))} className="field-input font-mono">{comparisonOperators.map((operator) => <option key={operator.value} value={operator.value}>{operator.label}</option>)}</select><input aria-label={`INI expected value ${index + 1}`} value={check.expectedValue} onChange={(event) => setIniChecks((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, expectedValue: event.target.value } : item))} placeholder="Expected value" className="field-input font-mono" /><button type="button" aria-label={`Remove INI value check ${index + 1}`} onClick={() => setIniChecks((items) => items.filter((_, itemIndex) => itemIndex !== index))} className="rounded-md text-[#9a817a] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}
+      </section>
+
+      <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end"><label className="block"><span className="field-label">Normal close countdown (seconds)</span><input type="number" min="1" max="3600" required value={normalCloseTimeoutSeconds} onChange={(event) => setNormalCloseTimeoutSeconds(event.target.value)} className="field-input font-mono" /></label><div><span className="field-label">Policy state</span><button type="button" data-testid="button-toggle-policy-state" onClick={() => setEnabled((value) => !value)} className={cx('flex h-9 w-full items-center justify-between rounded-lg border px-3 text-xs font-bold transition sm:w-[150px]', enabled ? 'border-[#8cc5a6] bg-[#e7f4ec] text-[#267154]' : 'border-[#d6ded8] bg-[#eef1ef] text-[#72817b]')}><span>{enabled ? 'Enforcing' : 'Paused'}</span><span className={cx('h-2 w-2 rounded-full', enabled ? 'bg-[#2ca06d]' : 'bg-[#96a29d]')} /></button></div></div>
+      <section className="space-y-3 rounded-lg border border-[#dbe5dd] bg-[#f8faf6] p-3"><h3 className="text-xs font-extrabold text-[#38534a]">Update Mode behavior</h3><div className="grid gap-3 sm:grid-cols-2"><label className="block"><span className="field-label">Update Mode close countdown (seconds)</span><input type="number" min="1" max="300" required value={updateModeCloseTimeoutSeconds} onChange={(event) => setUpdateModeCloseTimeoutSeconds(event.target.value)} className="field-input font-mono" /></label></div><SettingToggle label="Update Mode" detail="Use the shorter close countdown for this application's supervised processes." value={updateMode} onChange={setUpdateMode} testId="toggle-policy-update-mode" /><SettingToggle label="Allow postpone" detail="Show a Postpone button in the Windows warning." value={allowPostpone} onChange={setAllowPostpone} testId="toggle-policy-allow-postpone" /><SettingToggle label="Launch executable when leaving Update Mode" detail="Start the configured application after this Update Mode cycle ends." value={launchOnExitUpdateMode} onChange={setLaunchOnExitUpdateMode} testId="toggle-launch-on-exit-update-mode" />{launchOnExitUpdateMode && <div className="grid gap-3 sm:grid-cols-2"><label className="block"><span className="field-label">Full executable path</span><input required value={launchExecutablePath} onChange={(event) => setLaunchExecutablePath(event.target.value)} placeholder="C:\Program Files\...\app.exe" className="field-input font-mono" /></label><label className="block"><span className="field-label">Optional arguments</span><input value={launchArguments} onChange={(event) => setLaunchArguments(event.target.value)} className="field-input font-mono" /></label></div>}</section>
+      {feedback && <div role="alert" className="rounded-lg bg-[#fff0d5] px-3 py-2 text-xs font-semibold text-[#8a5a08]">{feedback}</div>}
+      <div className="flex justify-end gap-2 border-t border-[#e7ece7] pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}><Save size={14} />{busy ? 'Saving…' : isEdit ? 'Save changes' : 'Create policy'}</Button></div>
+    </form>
+  </Modal>;
+}
+
+function AuditPage() {
+  const query = useListAuditEntries({ limit: 100 });
+  const clientsQuery = useListClients();
+  const submit = useSubmitSyncReport();
+  const [showReport, setShowReport] = useState(false);
+  const auditEntries = listData<AuditEntry>(query.data, 'audit entries');
+  const clients = listData<Client>(clientsQuery.data, 'clients');
+  const [search, setSearch] = useState('');
+  const [sortField, setSortField] = useState('timestamp');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir(field === 'timestamp' ? 'desc' : 'asc'); }
+  };
+
+  const sortedEntries = useMemo(() => {
+    return [...auditEntries].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'clientName') cmp = a.clientName.localeCompare(b.clientName);
+      if (sortField === 'timestamp') cmp = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      if (sortField === 'result') {
+        const order = { success: 3, warning: 2, rejected: 1 };
+        cmp = order[a.result] - order[b.result];
+      }
+      if (sortField === 'applications') {
+        const ratioA = a.applications.length ? a.applications.filter(x => x.compliant).length / a.applications.length : 0;
+        const ratioB = b.applications.length ? b.applications.filter(x => x.compliant).length / b.applications.length : 0;
+        cmp = ratioA - ratioB;
+      }
+      if (cmp === 0) cmp = a.id.localeCompare(b.id);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [auditEntries, sortField, sortDir]);
+
+  const filtered = sortedEntries.filter((entry) => {
+    const searchStr = `${JSON.stringify(entry)} ${formatTime(entry.timestamp)} ${relativeTime(entry.timestamp)} ${entry.applications.filter((application) => application.compliant).length}/${entry.applications.length} compliant`.toLowerCase();
+    return searchStr.includes(search.toLowerCase());
+  });
+
+  return <div className="mx-auto max-w-[1380px]">
+    <PageHeader eyebrow="Current state" title="Audit trail" detail="The latest synchronization result for each enrolled client, including observed application versions and policy expectations." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => query.refetch()} disabled={query.isFetching} data-testid="button-refresh-audit"><RefreshCw size={14} /> Refresh</Button><Button onClick={() => setShowReport(true)} data-testid="button-record-report"><Plus size={15} /> Record report</Button></div>} />
+    <div className="mb-4"><div className="relative max-w-sm"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#91a09b]" /><input aria-label="Search audit trail" data-testid="input-search-audit" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search clients, results, applications..." className="h-9 w-full rounded-lg border border-[#d9e1db] bg-[#fbfcf8] pl-9 pr-3 text-xs text-[#284139] outline-none placeholder:text-[#9ba8a1] focus:border-[#75ad95] focus:ring-2 focus:ring-[#4ca27a]/15" /></div></div>
+    {query.isError ? <ErrorState onRetry={() => query.refetch()} /> : query.isLoading ? <LoadingRows count={7} /> : filtered.length === 0 ? <EmptyState icon={Archive} title={search ? "No matching audit entries" : "No client status reports yet"} detail={search ? "Try a different search term." : "The latest synchronization result will appear here as clients check in."} action={search ? <Button variant="secondary" onClick={() => setSearch('')}>Clear search</Button> : <Button variant="secondary" onClick={() => setShowReport(true)}><Plus size={14} /> Record a report</Button>} /> : <div className="overflow-x-auto rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="hidden min-w-[900px] grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[#87958e] md:grid"><SortHeader label="Client" field="clientName" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Last report" field="timestamp" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Result" field="result" sortField={sortField} sortDir={sortDir} onSort={handleSort} /><SortHeader label="Applications" field="applications" sortField={sortField} sortDir={sortDir} onSort={handleSort} /></div><div className="min-w-[760px] divide-y divide-[#edf0eb]">{filtered.map((entry) => <AuditDetailRow key={entry.id} entry={entry} />)}</div></div>}
+    {showReport && <ReportModal clients={clients} onClose={() => setShowReport(false)} mutation={submit} />}
+  </div>;
+}
+
+function AuditDetailRow({ entry }: { entry: AuditEntry }) {
+  const [expanded, setExpanded] = useState(false);
+  const kind = entry.result === 'success' ? 'success' : entry.result === 'warning' ? 'warning' : 'danger';
+  return <div className="group"><button data-testid={`button-expand-audit-${entry.id}`} onClick={() => setExpanded((value) => !value)} className="grid w-full grid-cols-[1.1fr_.8fr_1fr_1fr] gap-4 px-5 py-4 text-left transition hover:bg-[#fafbf7]"><div className="flex items-center gap-2 text-xs font-bold text-[#365049]"><ChevronRight size={14} className={cx('text-[#9baaa2] transition-transform', expanded && 'rotate-90')} />{entry.clientName}</div><div className="font-mono text-[10px] text-[#71817c]">{formatTime(entry.timestamp)}</div><div><StatusPill value={entry.result} kind={kind} /></div><div className="text-xs text-[#536b68]">{entry.applications.filter((app) => app.compliant).length}/{entry.applications.length} compliant</div></button>{expanded && <div className="grid gap-2 bg-[#f6f9f5] px-5 py-3 md:px-12">{entry.applications.length === 0 ? <div className="text-xs text-[#87958e]">No application details attached to this report.</div> : entry.applications.map((app) => <div key={app.softwareId} className="grid gap-2 text-xs md:grid-cols-[1.1fr_1.5fr_1.5fr_90px] md:items-start md:gap-3"><span className="font-semibold text-[#486159]">{app.softwareName}</span><span className="break-words font-mono text-[10px] leading-4 text-[#71817c]">observed {app.observedVersion}</span><span className="break-words font-mono text-[10px] leading-4 text-[#71817c]">expected {app.expectedVersion}</span><StatusPill value={app.compliant ? 'match' : 'drift'} kind={app.compliant ? 'success' : 'danger'} /></div>)}</div>}</div>;
+}
+
+function ReportModal({ clients, onClose, mutation }: { clients: Client[]; onClose: () => void; mutation: ReturnType<typeof useSubmitSyncReport> }) {
+  const [clientId, setClientId] = useState(clients[0]?.id ?? '');
+  const [result, setResult] = useState<'success' | 'warning' | 'rejected'>('success');
+  const client = clients.find((item) => item.id === clientId);
+  const submit = (event: FormEvent) => { event.preventDefault(); if (!client) return; mutation.mutate({ data: { clientId: client.id, clientName: client.name, result, applications: [] } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getListAuditEntriesQueryKey({ limit: 100 }) }); onClose(); } }); };
+  return <Modal title="Record synchronization report" subtitle="Attach a result to a client for operational traceability." onClose={onClose}><form onSubmit={submit} className="space-y-4"><label className="block"><span className="field-label">Client</span><select required data-testid="select-report-client" value={clientId} onChange={(e) => setClientId(e.target.value)} className="field-input">{clients.length === 0 ? <option value="">No clients available</option> : clients.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.hostname}</option>)}</select></label><label className="block"><span className="field-label">Observed result</span><select data-testid="select-report-result" value={result} onChange={(e) => setResult(e.target.value as typeof result)} className="field-input"><option value="success">Success — all policies satisfied</option><option value="warning">Warning — drift observed</option><option value="rejected">Rejected — client not trusted</option></select></label><div className="rounded-lg bg-[#f5f8f3] p-3 text-xs leading-5 text-[#71817c]"><CircleHelp size={14} className="mr-1 inline text-[#4b9474]" /> This records the sync outcome now. Detailed application observations are attached by the Windows service during its next report.</div><div className="flex justify-end gap-2 border-t border-[#e7ece7] pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" disabled={!client || mutation.isPending}><Save size={14} />{mutation.isPending ? 'Recording…' : 'Record result'}</Button></div></form></Modal>;
+}
+
+function AdminPasswordPanel() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [busy, setBusy] = useState(false);
+  const changePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setFeedback('');
+    try {
+      const response = await fetch('/api/auth/password', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? 'Unable to change password.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setFeedback('Password changed.');
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to change password.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <details className="group w-full max-w-sm rounded-lg border border-[#dbe3dd] bg-[#fffdf8] p-2.5 text-left"><summary className="cursor-pointer list-none px-1 text-xs font-bold text-[#38534a]">Change administrator password</summary><form onSubmit={changePassword} className="mt-3 space-y-2.5 border-t border-[#e7ece7] pt-3"><label className="block"><span className="field-label">Current password</span><input required autoComplete="current-password" type="password" data-testid="input-current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="field-input" /></label><label className="block"><span className="field-label">New password</span><input required minLength={8} autoComplete="new-password" type="password" data-testid="input-new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="field-input" /></label><div className="flex items-center justify-between gap-2"><span className="text-[10px] text-[#87958e]">Minimum 8 characters.</span><Button type="submit" variant="secondary" disabled={busy}>{busy ? 'Changing…' : 'Change'}</Button></div>{feedback && <div role="status" data-testid="text-password-feedback" className="text-[10px] font-semibold text-[#4d7165]">{feedback}</div>}</form></details>;
+}
+
+function AdministratorsPage() {
+  const [users, setUsers] = useState<AdministratorUser[]>([]);
+  const [username, setUsername] = useState('');
+  const [feedback, setFeedback] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/users', { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load administrators.');
+      setUsers(await response.json() as AdministratorUser[]);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to load administrators.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { void load(); }, []);
+  const add = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setFeedback('');
+    try {
+      const response = await fetch('/api/users', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ username: username.trim() }) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? 'Unable to add administrator.');
+      setUsers((items) => [body as AdministratorUser, ...items]);
+      setUsername('');
+      setFeedback('Administrator added. They can sign in with their LDAP password.');
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Unable to add administrator.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const changeActive = async (user: AdministratorUser) => {
+    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', ...csrfHeaders() }, body: JSON.stringify({ isActive: !user.isActive }) });
+    if (response.ok) setUsers((items) => items.map((item) => item.id === user.id ? { ...item, isActive: !user.isActive } : item));
+  };
+  const remove = async (user: AdministratorUser) => {
+    if (!window.confirm(`Remove ${user.username} from administrators?`)) return;
+    const response = await fetch(`/api/users/${encodeURIComponent(user.id)}`, { method: 'DELETE', credentials: 'include', headers: csrfHeaders() });
+    if (response.ok) setUsers((items) => items.filter((item) => item.id !== user.id));
+  };
+  return <div className="mx-auto max-w-[1080px]">
+    <PageHeader eyebrow="Access control" title="Administrators" detail="Only listed LDAP users can enter the control center. Every administrator has the same unrestricted administrator role." action={<Button variant="secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={14} /> Refresh</Button>} />
+    <div className="grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
+      <section className="rounded-xl border border-[#dbe3dd] bg-[#fffdf8] p-5 shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="mb-5 flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#e3f0e9] text-[#28745b]"><Users size={18} /></div><div><h2 className="text-sm font-extrabold text-[#284139]">Add LDAP administrator</h2><p className="mt-1 text-xs leading-5 text-[#87958e]">The account is looked up through the configured directory before it is granted access.</p></div></div><form onSubmit={add} className="space-y-3"><label className="block"><span className="field-label">LDAP username</span><input required data-testid="input-admin-username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="jdupont" className="field-input" /></label><Button type="submit" disabled={busy || !username.trim()}><Plus size={14} />{busy ? 'Looking up…' : 'Add administrator'}</Button>{feedback && <div role="status" className="rounded-lg bg-[#f5f8f3] px-3 py-2 text-[11px] font-semibold text-[#4d7165]">{feedback}</div>}</form></section>
+      <section className="overflow-hidden rounded-xl border border-[#dbe3dd] bg-[#fffdf8] shadow-[0_4px_18px_rgba(39,66,58,.035)]"><div className="border-b border-[#e5ebe5] bg-[#f8faf6] px-5 py-4"><h2 className="text-sm font-extrabold text-[#284139]">Administrator directory</h2><p className="mt-1 text-xs text-[#87958e]">{users.length} listed user{users.length === 1 ? '' : 's'} · one unrestricted role</p></div>{loading ? <div className="p-5"><LoadingRows count={3} /></div> : users.length === 0 ? <EmptyState icon={Users} title="No LDAP administrators" detail="Configure LDAP and add the first directory user." /> : <div className="divide-y divide-[#edf0eb]">{users.map((user) => <div key={user.id} className="flex items-center gap-3 px-5 py-4"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dff2e9] text-[11px] font-extrabold text-[#28745b]">{initials(user.displayName || user.username)}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-extrabold text-[#365049]">{user.displayName || user.username}</div><div className="truncate font-mono text-[10px] text-[#87958e]">{user.username}{user.email ? ` · ${user.email}` : ''}</div></div><StatusPill value={user.isActive ? 'active' : 'disabled'} kind={user.isActive ? 'success' : 'neutral'} /><button type="button" onClick={() => void changeActive(user)} className="rounded-md px-2 py-1 text-[10px] font-bold text-[#4d7165] hover:bg-[#e7f2eb]">{user.isActive ? 'Disable' : 'Enable'}</button><button type="button" aria-label={`Remove ${user.username}`} onClick={() => void remove(user)} className="rounded-md p-2 text-[#9b7972] hover:bg-[#f9e3df] hover:text-[#a13a31]"><Trash2 size={14} /></button></div>)}</div>}</section>
     </div>
   </div>;
 }
