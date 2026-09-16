@@ -86,6 +86,8 @@ export const adminUsersTable = pgTable("nemesys_admin_users", {
   displayName: text("display_name").notNull(),
   email: text("email").notNull().default(""),
   source: text("source").notNull().default("ldap"),
+  passwordHash: text("password_hash"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
   directoryDn: text("directory_dn"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
