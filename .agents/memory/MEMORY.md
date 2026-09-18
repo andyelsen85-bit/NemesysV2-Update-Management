@@ -12,4 +12,4 @@
 - [Active Directory policy targeting](active-directory-policy-targeting.md) — target only from a durable paged cache; preserve immutable AD identity and fail closed for stale or unmatched computers.
 - [openid-client token signatures](openid-client-token-signatures.md) — v6 ID-token JWS/JWKS validation requires explicit non-repudiation checks.
 - [AD FS PKCE discovery](adfs-pkce-discovery.md) — always send S256; do not require AD FS to advertise its support in optional discovery metadata.
-- [Backup and audit integrity](backup-and-audit-integrity.md) — backups classify every Nemesys table; audit mutations run only through owner-separated database routines.
+- [Backup and audit lifecycle](backup-and-audit-integrity.md) — backups classify every Nemesys table; audit entries use normal application ownership.

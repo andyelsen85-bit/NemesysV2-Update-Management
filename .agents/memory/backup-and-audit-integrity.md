@@ -1,6 +1,6 @@
 ---
-name: Backup and audit integrity
-description: Durable database boundaries for portable backups and immutable latest-client audit records.
+name: Backup and audit lifecycle
+description: Durable database boundaries for portable backups and latest-client audit records.
 ---
 
 Every public Nemesys table must be classified as portable application data or an explicit operational exclusion. Sessions, distributed security buckets, and the live session-generation state are operational; restore must increment the live generation rather than restoring an older value.
@@ -9,8 +9,8 @@ Every public Nemesys table must be classified as portable application data or an
 
 **How to apply:** Any new Nemesys table must update backup classification and drift tests. Restore must continue to revoke all administrator sessions atomically.
 
-The latest-client audit table is owned by a dedicated NOLOGIN role. Application logins receive read access and narrowly scoped SECURITY DEFINER routines through a stable NOLOGIN group role, but never direct update, delete, or truncate privileges.
+The latest-client audit table uses the same ownership and permissions model as other application tables. The API transaction and unique client identity constraint preserve one latest report per client; database-level immutability is not required.
 
-**Why:** A session-local bypass controlled by the application database role is not an immutability boundary. Separating ownership makes authorized replacement, cleanup, and restore auditable database capabilities.
+**Why:** The project does not require audit records to be immutable, and avoiding dedicated owner/group roles removes the need for elevated PostgreSQL role-management permissions.
 
-**How to apply:** Privileged deployment migrations provision the owner/group roles and grant the runtime login group membership. API startup must fail closed if ownership, trigger attachment, group membership, routine privileges, or direct-mutation revocation drift.
+**How to apply:** Perform audit replacement, inactive cleanup, and backup restore through ordinary application transactions. Do not add dedicated PostgreSQL roles or SECURITY DEFINER routines unless the security requirement changes.

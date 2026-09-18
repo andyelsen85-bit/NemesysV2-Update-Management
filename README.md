@@ -81,11 +81,9 @@ flowchart LR
   Kubernetes database PVC. Availability and restore procedures follow the CHdN
   operational agreement. The production `DATABASE_URL` must point to the
   CHdN-managed service through the deployment's protected secret management.
-  The privileged database migration account provisions the NOLOGIN
-  `nemesys_audit_owner` and `nemesys_app` roles. The login used by
-  `DATABASE_URL` must be granted membership in `nemesys_app`; API startup
-  verifies its audit read/routine permissions and rejects direct audit-table
-  mutation privileges before listening.
+  Nemesys does not create PostgreSQL roles or require a privileged migration
+  account. The login used by `DATABASE_URL` owns and manages the application
+  tables, including audit entries.
 - **Local development:** Developers provide a PostgreSQL instance and set
   `DATABASE_URL` themselves. The `db push` command is for development-only
   schema synchronization.

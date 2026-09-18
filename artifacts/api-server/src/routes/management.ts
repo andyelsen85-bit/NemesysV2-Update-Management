@@ -269,9 +269,8 @@ router.delete("/clients/inactive", requireAdmin, async (_req, res): Promise<void
       .for("update");
     const clientIds = inactiveClients.map((client) => client.id);
     if (!clientIds.length) return 0;
-    await transaction.execute(sql`
-      SELECT public.nemesys_delete_inactive_audits(${clientIds}::text[])
-    `);
+    await transaction.delete(auditEntriesTable)
+      .where(inArray(auditEntriesTable.clientId, clientIds));
     const deleted = await transaction.delete(clientsTable)
       .where(and(
         inArray(clientsTable.id, clientIds),
@@ -903,25 +902,17 @@ router.post("/sync/report", expensiveMachineRateLimiter(60), requireClientApiKey
     });
     const result = applications.every((application) => application.compliant) ? "success" : "warning";
 
-    const replacement = await transaction.execute(sql`
-      SELECT * FROM public.nemesys_replace_latest_audit_report(
-        ${`audit-${crypto.randomUUID()}`},
-        ${parsed.data.clientId},
-        ${parsed.data.clientName},
-        ${reportTimestamp},
-        ${result},
-        ${JSON.stringify(applications)}::jsonb
-      )
-    `);
-    const row = replacement.rows[0] as Record<string, unknown> | undefined;
-    return row ? {
-      id: row.id as string,
-      clientId: row.client_id as string,
-      clientName: row.client_name as string,
-      timestamp: row.timestamp as Date,
-      result: row.result as string,
-      applications: row.applications as typeof parsed.data.applications,
-    } : undefined;
+    await transaction.delete(auditEntriesTable)
+      .where(eq(auditEntriesTable.clientId, parsed.data.clientId));
+    const [entry] = await transaction.insert(auditEntriesTable).values({
+      id: `audit-${crypto.randomUUID()}`,
+      clientId: parsed.data.clientId,
+      clientName: parsed.data.clientName,
+      timestamp: reportTimestamp,
+      result,
+      applications,
+    }).returning();
+    return entry;
   });
   if (!entry) {
     res.status(403).json({ error: "Client access is revoked" });

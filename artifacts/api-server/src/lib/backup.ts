@@ -405,16 +405,11 @@ export async function restoreBackup(tx: Transaction, document: BackupDocument): 
     throw new BackupValidationError("The database session security state is invalid.");
   }
   for (const table of DELETE_ORDER) {
-    if (table === "nemesys_audit_entries") continue;
     await tx.execute(sql.raw(`DELETE FROM public.${quoteIdentifier(table)}`));
   }
   for (const table of INSERT_ORDER) {
-    if (table === "nemesys_audit_entries") continue;
     await replaceTable(tx, table, document.tables[table], schemaManifest[table]);
   }
-  await tx.execute(sql`
-    SELECT public.nemesys_restore_audit_entries(${JSON.stringify(document.tables.nemesys_audit_entries)}::jsonb)
-  `);
   await repairSequences(tx);
   // Keep the legacy column synchronized for older tooling, but never read it
   // for authorization or session validation.
